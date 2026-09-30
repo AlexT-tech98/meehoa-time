@@ -430,6 +430,29 @@ export default function Home() {
               locationName: 'MEEHOA Flagship',
             });
           }
+
+            // Đồng bộ danh sách nhân viên thực tế từ Supabase
+            const { data: allProfiles } = await client.from('profiles').select('*').order('employee_code');
+            if (allProfiles && allProfiles.length > 0) {
+              setStaffList(
+                allProfiles.map((p) => ({
+                  id: p.id,
+                  employeeCode: p.employee_code || 'NV',
+                  name: p.full_name || 'Nhân viên',
+                  initials: (p.full_name || 'NV').slice(0, 2).toUpperCase(),
+                  email: p.email || '',
+                  phone: p.phone || '',
+                  role: p.role as Role,
+                  payrollType: p.payroll_type as PayrollType,
+                  hourlyRate: Number(p.hourly_rate) || 25000,
+                  monthlySalary: Number(p.monthly_salary) || 0,
+                  allowance: 0,
+                  effectiveDate: p.effective_date || '2026-09-01',
+                  locationName: 'MEEHOA Flagship',
+                }))
+              );
+            }
+
         }
       } catch {
         // Safe fallback
@@ -501,6 +524,14 @@ export default function Home() {
         setToast('Đăng nhập thành công!');
       }
     })();
+  };
+
+  
+  const handleResetDemoData = () => {
+    setScheduleGrid({});
+    setApprovals([]);
+    setWageHistories([]);
+    setToast('Đã dọn sạch dữ liệu demo. Sẵn sàng vận hành thực tế!');
   };
 
   const handleSignOut = () => {
@@ -708,6 +739,7 @@ export default function Home() {
 
         {tab === 'settings' && (
           <SettingsTab
+            onResetDemoData={handleResetDemoData}
             settings={shopSettings}
             onUpdateSettings={(s) => {
               setShopSettings(s);
@@ -1853,6 +1885,7 @@ function SettingsTab({
   settings,
   onUpdateSettings,
   staff,
+  onResetDemoData,
   onUpdateStaff,
   wageHistories,
   onAddWageHistory,
@@ -1865,6 +1898,7 @@ function SettingsTab({
   wageHistories: WageHistoryRecord[];
   onAddWageHistory: (wh: WageHistoryRecord) => void;
   onSaved: (msg: string) => void;
+  onResetDemoData?: () => void;
 }) {
   const [section, setSection] = useState<'salary' | 'rules' | 'history'>(
     'salary',
@@ -2166,7 +2200,33 @@ function SettingsTab({
         </div>
       )}
 
-      {section === 'history' && (
+      
+        {/* Khởi tạo & Dọn sạch dữ liệu */}
+        <section className="rounded-3xl border bg-card p-6 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <p className="font-bold text-foreground text-sm">Khởi tạo & Dọn dẹp dữ liệu</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Xóa sạch các ca làm việc, giải trình và lịch sử lương mẫu để bắt đầu vận hành chính thức từ đầu.
+              </p>
+            </div>
+            {onResetDemoData && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm('Bạn có chắc muốn xóa sạch toàn bộ dữ liệu mẫu (lịch tuần, đơn duyệt) để đưa bảng về trống?')) {
+                    onResetDemoData();
+                  }
+                }}
+                className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-xs font-semibold text-destructive hover:bg-destructive/20 transition-colors shrink-0"
+              >
+                Dọn sạch dữ liệu mẫu
+              </button>
+            )}
+          </div>
+        </section>
+
+        {section === 'history' && (
         <div className="overflow-hidden rounded-[24px] border bg-card shadow-2xs">
           <div className="p-4 border-b">
             <h3 className="font-bold text-sm">
