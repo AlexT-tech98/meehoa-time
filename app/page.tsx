@@ -115,77 +115,17 @@ const INITIAL_STAFF: UserProfile[] = [
   {
     id: 'user-owner-01',
     employeeCode: 'QL01',
-    name: 'Alexx (Chủ cửa hàng)',
-    initials: 'AL',
+    name: 'Chủ cửa hàng MEEHOA',
+    initials: 'CH',
     email: 'owner@meehoa.vn',
-    phone: '0901234567',
+    phone: '',
     role: 'owner',
     payrollType: 'monthly',
     hourlyRate: 0,
     monthlySalary: 15000000,
-    allowance: 1000000,
-    effectiveDate: '2026-09-01',
-    locationName: 'Meehoasg - Bình Thạnh',
-  },
-  {
-    id: 'user-emp-01',
-    employeeCode: 'NV01',
-    name: 'Nga',
-    initials: 'NG',
-    email: 'nga@meehoa.vn',
-    phone: '0912345678',
-    role: 'employee',
-    payrollType: 'hourly',
-    hourlyRate: 25000,
-    monthlySalary: 0,
-    allowance: 300000,
-    effectiveDate: '2026-09-01',
-    locationName: 'Meehoasg - Bình Thạnh',
-  },
-  {
-    id: 'user-emp-02',
-    employeeCode: 'NV02',
-    name: 'Tiên',
-    initials: 'TN',
-    email: 'tien@meehoa.vn',
-    phone: '0923456789',
-    role: 'employee',
-    payrollType: 'monthly',
-    hourlyRate: 0,
-    monthlySalary: 6500000,
-    allowance: 500000,
-    effectiveDate: '2026-09-01',
-    locationName: 'Meehoasg - Bình Thạnh',
-  },
-  {
-    id: 'user-emp-03',
-    employeeCode: 'NV03',
-    name: 'Uyên',
-    initials: 'UY',
-    email: 'uyen@meehoa.vn',
-    phone: '0934567890',
-    role: 'employee',
-    payrollType: 'hourly',
-    hourlyRate: 28000,
-    monthlySalary: 0,
     allowance: 0,
-    effectiveDate: '2026-08-01',
-    locationName: 'Meehoasg - Bình Thạnh',
-  },
-  {
-    id: 'user-emp-04',
-    employeeCode: 'NV04',
-    name: 'Thảo',
-    initials: 'TH',
-    email: 'thao@meehoa.vn',
-    phone: '0945678901',
-    role: 'employee',
-    payrollType: 'hourly',
-    hourlyRate: 25000,
-    monthlySalary: 0,
-    allowance: 200000,
     effectiveDate: '2026-09-01',
-    locationName: 'Meehoasg - Bình Thạnh',
+    locationName: 'Meehoasg - Tiệm Hoa Tươi Bình Thạnh',
   },
 ];
 
@@ -224,26 +164,7 @@ export default function Home() {
   const [authLoading, setAuthLoading] = useState(false);
 
   const [staffList, setStaffList] = useState<UserProfile[]>(INITIAL_STAFF);
-  const [wageHistories, setWageHistories] = useState<WageHistoryRecord[]>([
-    {
-      id: 'wh-1',
-      employeeName: 'Uyên',
-      payrollType: 'hourly',
-      rate: 28000,
-      effectiveDate: '01/08/2026',
-      note: 'Tăng bậc lương theo thâm niên',
-      createdAt: '2026-08-01',
-    },
-    {
-      id: 'wh-2',
-      employeeName: 'Tiên',
-      payrollType: 'monthly',
-      rate: 6500000,
-      effectiveDate: '01/09/2026',
-      note: 'Ký hợp đồng chính thức',
-      createdAt: '2026-09-01',
-    },
-  ]);
+  const [wageHistories, setWageHistories] = useState<WageHistoryRecord[]>([]);
 
   const [shopSettings, setShopSettings] = useState({
     name: 'MEEHOA TIME',
@@ -268,95 +189,9 @@ export default function Home() {
     return getWeekDays(d);
   }, [currentWeekOffset]);
 
-  const [scheduleGrid, setScheduleGrid] = useState<Record<string, string[]>>({
-    Nga: [
-      '10:00–18:00',
-      '10:00–18:00',
-      '10:00–18:00',
-      '16:00–21:30',
-      '10:00–18:00',
-      'OFF',
-      'OFF',
-    ],
-    Tiên: [
-      '08:00–12:00',
-      '12:00–16:00',
-      '08:00–16:00',
-      'OFF',
-      '08:00–12:00',
-      '12:00–21:30',
-      'OFF',
-    ],
-    Uyên: [
-      'OFF',
-      '17:30–21:30',
-      '12:00–16:00',
-      '11:30–21:30',
-      'OFF',
-      '11:30–17:30',
-      '17:30–21:30',
-    ],
-    Thảo: [
-      '17:30–21:30',
-      'OFF',
-      '17:30–21:30',
-      '12:00–16:00',
-      '16:00–21:30',
-      '08:00–16:00',
-      '11:30–21:30',
-    ],
-  });
+  const [scheduleGrid, setScheduleGrid] = useState<Record<string, string[]>>({});
 
-  const [approvals, setApprovals] = useState<ApprovalItem[]>([
-    {
-      id: 'app-1',
-      shiftId: 's-101',
-      employeeId: 'user-emp-02',
-      employeeName: 'Tiên',
-      kind: 'exception',
-      typeLabel: 'Đi trễ 11 phút',
-      dateStr: 'Hôm nay',
-      shiftTime: '08:00–16:00',
-      actualTimes: 'Check-in 08:11',
-      evidence: 'GPS tại shop (18m), đến trễ do sự cố xe cộ',
-      reason: 'Xe hư trên đường đi làm, đã báo quản lý lúc 7:48.',
-      requestedPayable: 'Giữ đủ 8 giờ công',
-      proposedMinutes: 480,
-      status: 'pending',
-    },
-    {
-      id: 'app-2',
-      shiftId: 's-102',
-      employeeId: 'user-emp-01',
-      employeeName: 'Nga',
-      kind: 'exception',
-      typeLabel: 'Thiếu check-out',
-      dateStr: 'Hôm qua',
-      shiftTime: '10:00–18:00',
-      actualTimes: 'Check-in 10:02 · Chưa check-out',
-      evidence: 'Quên bấm điện thoại khi kết thúc ca đông khách',
-      reason: 'Em dọn dẹp cắm hoa tới 18:05 rồi về vội quên checkout.',
-      requestedPayable: 'Tính công kết thúc lúc 18:00',
-      proposedMinutes: 480,
-      status: 'pending',
-    },
-    {
-      id: 'app-3',
-      shiftId: 's-103',
-      employeeId: 'user-emp-03',
-      employeeName: 'Uyên',
-      kind: 'overtime',
-      typeLabel: 'Tăng ca (OT) 2 giờ',
-      dateStr: '14/09',
-      shiftTime: '12:00–16:00 (Thực tế ở lại tới 18:05)',
-      actualTimes: 'Check-out 18:05',
-      evidence: 'Đơn hàng tiệc cưới hoàn thiện theo yêu cầu quản lý',
-      reason: 'Ở lại hoàn thiện đơn cổng hoa cưới theo chỉ đạo của shop.',
-      requestedPayable: '120 phút OT (Tính 1.5x)',
-      proposedMinutes: 120,
-      status: 'pending',
-    },
-  ]);
+  const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
 
   const [payrollLocked, setPayrollLocked] = useState(false);
   const pendingApprovalsCount = approvals.filter(
@@ -396,6 +231,54 @@ export default function Home() {
     const t = setTimeout(() => setToast(''), 3000);
     return () => clearTimeout(t);
   }, [toast]);
+
+  
+  useEffect(() => {
+    const client = supabase;
+    if (!hasSupabase || !client) return;
+
+    void (async () => {
+      try {
+        // Luôn nạp thông tin chi nhánh & tọa độ GPS thực tế từ Supabase
+        const { data: locs } = await client.from('locations').select('*').limit(1);
+        if (locs && locs.length > 0) {
+          const loc = locs[0];
+          setShopSettings((prev) => ({
+            ...prev,
+            storeName: loc.name,
+            lat: loc.latitude,
+            lng: loc.longitude,
+            radius: loc.radius_meters || 120,
+          }));
+        }
+
+        // Nạp danh sách hồ sơ nhân viên thực tế
+        const { data: profs } = await client.from('profiles').select('*').order('employee_code');
+        if (profs && profs.length > 0) {
+          const mapped: UserProfile[] = profs.map((p) => ({
+            id: p.id,
+            employeeCode: p.employee_code || 'NV',
+            name: p.full_name || 'Nhân viên',
+            initials: (p.full_name || 'NV').slice(0, 2).toUpperCase(),
+            email: p.email || '',
+            phone: p.phone || '',
+            role: p.role as Role,
+            payrollType: p.payroll_type as PayrollType,
+            hourlyRate: Number(p.hourly_rate) || 25000,
+            monthlySalary: Number(p.monthly_salary) || 0,
+            allowance: 0,
+            effectiveDate: p.effective_date || '2026-09-01',
+            locationName: locs?.[0]?.name || 'Meehoasg - Tiệm Hoa Tươi Bình Thạnh',
+          }));
+          setStaffList(mapped);
+          const ownerUser = mapped.find((m) => m.role === 'owner') || mapped[0];
+          if (ownerUser) setActiveUser(ownerUser);
+        }
+      } catch (err) {
+        console.error('Error fetching data from Supabase:', err);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     const client = supabase;
@@ -1243,7 +1126,15 @@ function ScheduleTab({
             </tr>
           </thead>
           <tbody>
-            {Object.entries(grid).map(([name, shifts], rowIndex) => {
+            {Object.keys(grid).length === 0 ? (
+              <tr>
+                <td colSpan={9} className="py-12 text-center text-muted-foreground">
+                  <p className="font-semibold text-sm">Chưa có lịch làm việc được xếp trong tuần này</p>
+                  <p className="text-xs mt-1">Bấm &quot;Import CSV&quot; hoặc chọn ca để bắt đầu xếp lịch cho nhân viên.</p>
+                </td>
+              </tr>
+            ) : (
+              Object.entries(grid).map(([name, shifts], rowIndex) => {
               const totalHours = shifts.reduce(
                 (sum, s) => sum + parseShiftHours(s),
                 0,
@@ -1304,7 +1195,7 @@ function ScheduleTab({
                   </td>
                 </tr>
               );
-            })}
+            }))}
           </tbody>
         </table>
       </section>

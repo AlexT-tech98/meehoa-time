@@ -314,7 +314,7 @@ drop policy if exists org_read on public.organizations;
 create policy org_read on public.organizations for select using(id = public.current_org());
 
 drop policy if exists locations_read on public.locations;
-create policy locations_read on public.locations for select using(organization_id = public.current_org());
+create policy locations_read on public.locations for select using(active = true);
 drop policy if exists locations_manage on public.locations;
 create policy locations_manage on public.locations for all using(organization_id = public.current_org() and public.is_manager()) with check(organization_id = public.current_org() and public.is_manager());
 
