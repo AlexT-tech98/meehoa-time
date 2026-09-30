@@ -1655,6 +1655,7 @@ function CheckinTab({
     accuracy: number;
   } | null>(null);
   const [distanceToShop, setDistanceToShop] = useState<number | null>(null);
+  const [gpsError, setGpsError] = useState<string | null>(null);
   const [checkedIn, setCheckedIn] = useState(false);
   const [checkInTime, setCheckInTime] = useState<string | null>(null);
 
@@ -1665,19 +1666,10 @@ function CheckinTab({
 
     if (!navigator.geolocation) {
       setLocating(false);
-      const nowStr = new Date().toLocaleTimeString('vi-VN', {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-      if (eventType === 'check_in') {
-        setCheckedIn(true);
-        setCheckInTime(nowStr);
-      } else {
-        setCheckedIn(false);
-      }
-      onPunchRecorded(eventType);
+      setGpsError('Thiết bị/trình duyệt không hỗ trợ định vị GPS. Không thể chấm công.');
       return;
     }
+    setGpsError(null);
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -1706,20 +1698,9 @@ function CheckinTab({
       },
       () => {
         setLocating(false);
-        const nowStr = new Date().toLocaleTimeString('vi-VN', {
-          hour: '2-digit',
-          minute: '2-digit',
-        });
-        if (eventType === 'check_in') {
-          setCheckedIn(true);
-          setCheckInTime(nowStr);
-        } else {
-          setCheckedIn(false);
-        }
-        setDistanceToShop(15);
-        onPunchRecorded(eventType);
+        setGpsError('Không lấy được vị trí. Hãy bật GPS và cấp quyền vị trí cho trình duyệt rồi thử lại.');
       },
-      { enableHighAccuracy: true, timeout: 8000 },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
     );
   };
 
@@ -1762,6 +1743,11 @@ function CheckinTab({
             </span>
           </div>
 
+          {gpsError && (
+            <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-700">
+              {gpsError}
+            </p>
+          )}
           {userCoords && (
             <p className="mt-2 text-[11px] font-mono text-muted-foreground">
               GPS: {userCoords.lat.toFixed(5)}, {userCoords.lng.toFixed(5)} (±
