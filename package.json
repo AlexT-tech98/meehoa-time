@@ -11,7 +11,8 @@
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint app lib tests",
     "format": "oxfmt",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts",
+    "build:static": "vite build --config vite.static.config.ts && cp public/manifest.webmanifest public/favicon.svg dist_static/ && echo chamcong.meehoasg.com > dist_static/CNAME"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
