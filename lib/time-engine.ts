@@ -4,15 +4,15 @@
  */
 
 export type ExceptionType =
-  | "missing_check_in"
-  | "missing_check_out"
-  | "late"
-  | "early_leave"
-  | "outside_geofence"
-  | "low_gps_accuracy"
-  | "unscheduled_overtime"
-  | "unscheduled_work"
-  | "duplicate_attendance";
+  | 'missing_check_in'
+  | 'missing_check_out'
+  | 'late'
+  | 'early_leave'
+  | 'outside_geofence'
+  | 'low_gps_accuracy'
+  | 'unscheduled_overtime'
+  | 'unscheduled_work'
+  | 'duplicate_attendance';
 
 export type GpsCoordinate = {
   lat: number;
@@ -48,7 +48,7 @@ export type ShiftResult = {
   lateMinutes: number;
   earlyLeaveMinutes: number;
   exceptions: ExceptionType[];
-  confidence: "ready" | "pending";
+  confidence: 'ready' | 'pending';
   effectiveStart: string | null;
   effectiveEnd: string | null;
   checkInDistanceMeters?: number | null;
@@ -58,7 +58,8 @@ export type ShiftResult = {
 };
 
 const minutesFromIso = (iso: string) => new Date(iso).getTime() / 60000;
-const durationMinutes = (from: string, to: string) => Math.max(0, Math.round(minutesFromIso(to) - minutesFromIso(from)));
+const durationMinutes = (from: string, to: string) =>
+  Math.max(0, Math.round(minutesFromIso(to) - minutesFromIso(from)));
 
 /**
  * Apply rounding rule to minutes (e.g. 5m, 15m or 0)
@@ -71,12 +72,17 @@ export function applyRounding(mins: number, rounding: number = 0): number {
 /**
  * Great-circle distance between two GPS coordinates in meters
  */
-export function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+export function distanceMeters(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
   const r = 6371000; // meters
   const toRad = (v: number) => (v * Math.PI) / 180;
   const dLat = toRad(b.lat - a.lat);
   const dLng = toRad(b.lng - a.lng);
-  const x = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return 2 * r * Math.asin(Math.sqrt(x));
 }
 
@@ -89,34 +95,57 @@ export function evaluateShift(input: ShiftInput): ShiftResult {
   const maxAccuracy = input.maxGpsAccuracyMeters ?? 150;
   const exceptions: ExceptionType[] = [];
 
-  const scheduledMinutes = durationMinutes(input.scheduledStart, input.scheduledEnd);
+  const scheduledMinutes = durationMinutes(
+    input.scheduledStart,
+    input.scheduledEnd,
+  );
 
   // Missing check-in / check-out detection
   if (!input.checkIn && !input.approvedStart) {
-    exceptions.push("missing_check_in");
+    exceptions.push('missing_check_in');
   }
   if (!input.checkOut && !input.approvedEnd) {
-    exceptions.push("missing_check_out");
+    exceptions.push('missing_check_out');
   }
 
   // Actual minutes from raw punches
-  const actualMinutes = input.checkIn && input.checkOut ? durationMinutes(input.checkIn, input.checkOut) : 0;
+  const actualMinutes =
+    input.checkIn && input.checkOut
+      ? durationMinutes(input.checkIn, input.checkOut)
+      : 0;
 
   // Late and Early leave calculations
-  const lateMinutes = input.checkIn ? Math.max(0, Math.round(minutesFromIso(input.checkIn) - minutesFromIso(input.scheduledStart))) : 0;
-  const earlyLeaveMinutes = input.checkOut ? Math.max(0, Math.round(minutesFromIso(input.scheduledEnd) - minutesFromIso(input.checkOut))) : 0;
+  const lateMinutes = input.checkIn
+    ? Math.max(
+        0,
+        Math.round(
+          minutesFromIso(input.checkIn) - minutesFromIso(input.scheduledStart),
+        ),
+      )
+    : 0;
+  const earlyLeaveMinutes = input.checkOut
+    ? Math.max(
+        0,
+        Math.round(
+          minutesFromIso(input.scheduledEnd) - minutesFromIso(input.checkOut),
+        ),
+      )
+    : 0;
 
   if (lateMinutes > grace && !input.approvedStart) {
-    exceptions.push("late");
+    exceptions.push('late');
   }
   if (earlyLeaveMinutes > grace && !input.approvedEnd) {
-    exceptions.push("early_leave");
+    exceptions.push('early_leave');
   }
 
   // Checkout after scheduled end without approved OT is unscheduled OT
-  if (input.checkOut && minutesFromIso(input.checkOut) > minutesFromIso(input.scheduledEnd)) {
+  if (
+    input.checkOut &&
+    minutesFromIso(input.checkOut) > minutesFromIso(input.scheduledEnd)
+  ) {
     if (!input.approvedOtMinutes && !input.otRejected) {
-      exceptions.push("unscheduled_overtime");
+      exceptions.push('unscheduled_overtime');
     }
   }
 
@@ -127,23 +156,30 @@ export function evaluateShift(input: ShiftInput): ShiftResult {
     const radius = input.shopRadiusMeters ?? 120;
 
     if (input.checkInGps) {
-      if (input.checkInGps.accuracy && input.checkInGps.accuracy > maxAccuracy) {
-        exceptions.push("low_gps_accuracy");
+      if (
+        input.checkInGps.accuracy &&
+        input.checkInGps.accuracy > maxAccuracy
+      ) {
+        exceptions.push('low_gps_accuracy');
       }
       checkInDist = distanceMeters(input.shopLocation, input.checkInGps);
       if (checkInDist > radius) {
-        exceptions.push("outside_geofence");
-        }
+        exceptions.push('outside_geofence');
+      }
     }
 
     if (input.checkOutGps) {
-      if (input.checkOutGps.accuracy && input.checkOutGps.accuracy > maxAccuracy && !exceptions.includes("low_gps_accuracy")) {
-        exceptions.push("low_gps_accuracy");
+      if (
+        input.checkOutGps.accuracy &&
+        input.checkOutGps.accuracy > maxAccuracy &&
+        !exceptions.includes('low_gps_accuracy')
+      ) {
+        exceptions.push('low_gps_accuracy');
       }
       checkOutDist = distanceMeters(input.shopLocation, input.checkOutGps);
-      if (checkOutDist > radius && !exceptions.includes("outside_geofence")) {
-        exceptions.push("outside_geofence");
-        }
+      if (checkOutDist > radius && !exceptions.includes('outside_geofence')) {
+        exceptions.push('outside_geofence');
+      }
     }
   }
 
@@ -155,16 +191,27 @@ export function evaluateShift(input: ShiftInput): ShiftResult {
   let regularMinutes = 0;
   if (effectiveStart && effectiveEnd) {
     // Payable is capped at scheduled boundaries
-    const clampedStart = Math.max(minutesFromIso(effectiveStart), minutesFromIso(input.scheduledStart));
-    const clampedEnd = Math.min(minutesFromIso(effectiveEnd), minutesFromIso(input.scheduledEnd));
+    const clampedStart = Math.max(
+      minutesFromIso(effectiveStart),
+      minutesFromIso(input.scheduledStart),
+    );
+    const clampedEnd = Math.min(
+      minutesFromIso(effectiveEnd),
+      minutesFromIso(input.scheduledEnd),
+    );
     regularMinutes = Math.max(0, Math.round(clampedEnd - clampedStart));
   }
 
   // Only approved overtime is added to payable
-  const overtimeMinutes = input.approvedOtMinutes && input.approvedOtMinutes > 0 ? input.approvedOtMinutes : 0;
+  const overtimeMinutes =
+    input.approvedOtMinutes && input.approvedOtMinutes > 0
+      ? input.approvedOtMinutes
+      : 0;
 
   // Unresolved missing check-in/out holds pay in pending status
-  const unresolvedMissing = (!input.checkIn && !input.approvedStart) || (!input.checkOut && !input.approvedEnd);
+  const unresolvedMissing =
+    (!input.checkIn && !input.approvedStart) ||
+    (!input.checkOut && !input.approvedEnd);
 
   const rawPayable = unresolvedMissing ? 0 : regularMinutes + overtimeMinutes;
   const payableMinutes = applyRounding(rawPayable, rounding);
@@ -178,13 +225,19 @@ export function evaluateShift(input: ShiftInput): ShiftResult {
     lateMinutes,
     earlyLeaveMinutes,
     exceptions,
-    confidence: unresolvedMissing ? "pending" : "ready",
+    confidence: unresolvedMissing ? 'pending' : 'ready',
     effectiveStart,
     effectiveEnd,
     checkInDistanceMeters: checkInDist,
     checkOutDistanceMeters: checkOutDist,
-    checkInWithinGeofence: checkInDist !== null ? (checkInDist <= (input.shopRadiusMeters ?? 120)) : undefined,
-    checkOutWithinGeofence: checkOutDist !== null ? (checkOutDist <= (input.shopRadiusMeters ?? 120)) : undefined,
+    checkInWithinGeofence:
+      checkInDist !== null
+        ? checkInDist <= (input.shopRadiusMeters ?? 120)
+        : undefined,
+    checkOutWithinGeofence:
+      checkOutDist !== null
+        ? checkOutDist <= (input.shopRadiusMeters ?? 120)
+        : undefined,
   };
 }
 
@@ -192,7 +245,7 @@ export function evaluateShift(input: ShiftInput): ShiftResult {
  * Detect overlapping shifts for an employee
  */
 export function detectOverlappingShifts(
-  shifts: Array<{ id: string; startsAt: string; endsAt: string }>
+  shifts: Array<{ id: string; startsAt: string; endsAt: string }>,
 ): Array<{ shiftA: string; shiftB: string }> {
   const overlaps: Array<{ shiftA: string; shiftB: string }> = [];
   for (let i = 0; i < shifts.length; i++) {
@@ -214,14 +267,18 @@ export function detectOverlappingShifts(
  * Prevents duplicate punches within a short cooldown threshold (idempotency / rapid clicks)
  */
 export function isDuplicatePunch(
-  existingPunches: Array<{ event: "check_in" | "check_out"; occurredAt: string }>,
-  newPunch: { event: "check_in" | "check_out"; occurredAt: string },
-  cooldownSeconds: number = 60
+  existingPunches: Array<{
+    event: 'check_in' | 'check_out';
+    occurredAt: string;
+  }>,
+  newPunch: { event: 'check_in' | 'check_out'; occurredAt: string },
+  cooldownSeconds: number = 60,
 ): boolean {
   const newTime = new Date(newPunch.occurredAt).getTime();
   return existingPunches.some((p) => {
     if (p.event !== newPunch.event) return false;
-    const diffSeconds = Math.abs(newTime - new Date(p.occurredAt).getTime()) / 1000;
+    const diffSeconds =
+      Math.abs(newTime - new Date(p.occurredAt).getTime()) / 1000;
     return diffSeconds < cooldownSeconds;
   });
 }
@@ -239,7 +296,7 @@ export type WageRateSegment = {
  * Calculates hourly or monthly payroll with adjustments, prorations and wage changes
  */
 export function calculatePayroll(args: {
-  payrollType: "hourly" | "monthly";
+  payrollType: 'hourly' | 'monthly';
   payableMinutes: number;
   hourlyRate?: number;
   monthlySalary?: number;
@@ -254,16 +311,22 @@ export function calculatePayroll(args: {
     hourlyRate: number;
   }>;
 }) {
-  const adjustmentsTotal = (args.adjustments ?? []).reduce((sum, item) => sum + item.amount, 0);
+  const adjustmentsTotal = (args.adjustments ?? []).reduce(
+    (sum, item) => sum + item.amount,
+    0,
+  );
   const otMinutes = args.overtimeMinutes ?? 0;
   const otMultiplier = args.otMultiplier ?? 1.5;
 
   let base = 0;
   let otAmount = 0;
 
-  if (args.payrollType === "hourly") {
+  if (args.payrollType === 'hourly') {
     if (args.wageSegments && args.wageSegments.length > 0) {
-      base = args.wageSegments.reduce((sum, seg) => sum + (seg.payableMinutes / 60) * seg.hourlyRate, 0);
+      base = args.wageSegments.reduce(
+        (sum, seg) => sum + (seg.payableMinutes / 60) * seg.hourlyRate,
+        0,
+      );
     } else {
       const rate = args.hourlyRate ?? 0;
       base = (args.payableMinutes / 60) * rate;
@@ -273,9 +336,15 @@ export function calculatePayroll(args: {
     const salary = args.monthlySalary ?? 0;
     const standardDays = args.standardMonthlyDays ?? 26;
     const standardDailyHours = args.standardDailyHours ?? 8;
-    const hourlyEquivalent = standardDays > 0 && standardDailyHours > 0 ? salary / (standardDays * standardDailyHours) : 0;
+    const hourlyEquivalent =
+      standardDays > 0 && standardDailyHours > 0
+        ? salary / (standardDays * standardDailyHours)
+        : 0;
 
-    if (args.actualWorkedDays !== undefined && args.actualWorkedDays < standardDays) {
+    if (
+      args.actualWorkedDays !== undefined &&
+      args.actualWorkedDays < standardDays
+    ) {
       // Prorated monthly salary
       base = (salary / standardDays) * args.actualWorkedDays;
     } else {
@@ -310,7 +379,7 @@ export type PayrollPeriodSnapshot = {
   lockedBy: string;
   employeeSnapshots: Array<{
     employeeId: string;
-    payrollType: "hourly" | "monthly";
+    payrollType: 'hourly' | 'monthly';
     rateApplied: number;
     regularMinutes: number;
     overtimeMinutes: number;
@@ -319,5 +388,5 @@ export type PayrollPeriodSnapshot = {
     grossAmount: number;
   }>;
   totalGross: number;
-  status: "locked" | "paid";
+  status: 'locked' | 'paid';
 };

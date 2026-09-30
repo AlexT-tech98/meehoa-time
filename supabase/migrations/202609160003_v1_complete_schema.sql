@@ -89,19 +89,18 @@ security definer
 set search_path = public
 as $$
 declare
-  v_shift public.shifts;
-  v_location public.locations;
-  v_settings public.settings;
+  v_shift record;
+  v_location record;
+  v_settings record;
   v_distance double precision;
-  v_event public.attendance_events;
+  v_event record;
   v_within_geofence boolean := true;
   v_diff_minutes integer;
-  v_existing public.attendance_events;
 begin
   -- Idempotency check: return existing punch if same key
-  select * into v_existing from public.attendance_events where idempotency_key = p_idempotency_key;
-  if found then
-    return v_existing;
+  if exists (select 1 from public.attendance_events a where a.idempotency_key = p_idempotency_key) then
+    select * into v_event from public.attendance_events a where a.idempotency_key = p_idempotency_key limit 1;
+    return v_event;
   end if;
 
   -- Verify shift belongs to authenticated user
@@ -212,9 +211,10 @@ security definer
 set search_path = public
 as $$
 declare
-  v_explanation public.explanations;
-  v_exception public.attendance_exceptions;
-  v_shift public.shifts;
+  v_explanation record;
+  v_exception record;
+  v_shift record;
+  v_result record;
 begin
   if not public.is_manager() then
     raise exception 'PERMISSION_DENIED_NOT_MANAGER';
@@ -236,7 +236,7 @@ begin
       reviewed_at = now(),
       review_note = p_review_note
   where id = p_explanation_id
-  returning * into v_explanation;
+  returning * into v_result;
 
   -- Update exception record
   update public.attendance_exceptions
@@ -266,7 +266,7 @@ begin
     'explanations', v_explanation.id::text, to_jsonb(v_explanation)
   );
 
-  return v_explanation;
+  return v_result;
 end;
 $$;
 
@@ -285,8 +285,8 @@ security definer
 set search_path = public
 as $$
 declare
-  v_ot public.overtime_requests;
-  v_shift public.shifts;
+  v_ot record;
+  v_result record;
 begin
   if not public.is_manager() then
     raise exception 'PERMISSION_DENIED_NOT_MANAGER';
@@ -304,7 +304,7 @@ begin
       reviewed_by = auth.uid(),
       reviewed_at = now()
   where id = p_ot_id
-  returning * into v_ot;
+  returning * into v_result;
 
   if p_decision = 'approved' and v_ot.shift_id is not null then
     update public.shifts
@@ -320,7 +320,7 @@ begin
     'overtime_requests', v_ot.id::text, to_jsonb(v_ot)
   );
 
-  return v_ot;
+  return v_result;
 end;
 $$;
 
@@ -334,7 +334,8 @@ security definer
 set search_path = public
 as $$
 declare
-  v_period public.payroll_periods;
+  v_period record;
+  v_result record;
 begin
   if not public.is_manager() then
     raise exception 'PERMISSION_DENIED_NOT_MANAGER';
@@ -369,7 +370,7 @@ begin
       locked_at = now(),
       locked_by = auth.uid()
   where id = p_period_id
-  returning * into v_period;
+  returning * into v_result;
 
   -- Audit log
   insert into public.audit_logs(organization_id, actor_id, action, entity_type, entity_id, after_data)
@@ -378,7 +379,7 @@ begin
     'payroll_periods', v_period.id::text, to_jsonb(v_period)
   );
 
-  return v_period;
+  return v_result;
 end;
 $$;
 

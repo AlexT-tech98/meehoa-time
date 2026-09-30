@@ -2,9 +2,78 @@
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 @custom-variant dark (&:is(.dark *));
-@theme inline { --color-background:var(--background); --color-foreground:var(--foreground); --color-card:var(--card); --color-card-foreground:var(--card-foreground); --color-primary:var(--primary); --color-primary-foreground:var(--primary-foreground); --color-secondary:var(--secondary); --color-secondary-foreground:var(--secondary-foreground); --color-muted:var(--muted); --color-muted-foreground:var(--muted-foreground); --color-border:var(--border); --color-input:var(--input); --color-ring:var(--ring); --radius-sm:.5rem; --radius-md:.75rem; --radius-lg:1rem; --radius-xl:1.25rem; }
-:root { --background:#f7f7f3; --foreground:#17231d; --card:#fff; --card-foreground:#17231d; --primary:#165c45; --primary-foreground:#fff; --secondary:#e9f0eb; --secondary-foreground:#244739; --muted:#f0f1ed; --muted-foreground:#69756e; --border:#dfe4df; --input:#dfe4df; --ring:#328566; }
-.dark { --background:#101713; --foreground:#f2f6f3; --card:#17211b; --card-foreground:#f2f6f3; --primary:#71cfa8; --primary-foreground:#0d2c20; --secondary:#22352b; --secondary-foreground:#d5eee1; --muted:#1c2922; --muted-foreground:#a3b1a9; --border:#2c3a32; --input:#2c3a32; --ring:#71cfa8; }
-@layer base { * { @apply border-border outline-ring/50; } html { font-family:Inter,ui-sans-serif,system-ui,sans-serif; } body { @apply bg-background text-foreground antialiased; } button { cursor:pointer; } }
-.eyebrow { @apply text-[11px] font-bold uppercase tracking-[0.13em] text-muted-foreground; }
-.payroll-card { background:radial-gradient(circle at 85% 15%,rgba(124,214,171,.28),transparent 28%),linear-gradient(135deg,#123f31 0%,#176448 62%,#267c59 100%); }
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+}
+:root {
+  --background: #f7f7f3;
+  --foreground: #17231d;
+  --card: #fff;
+  --card-foreground: #17231d;
+  --primary: #165c45;
+  --primary-foreground: #fff;
+  --secondary: #e9f0eb;
+  --secondary-foreground: #244739;
+  --muted: #f0f1ed;
+  --muted-foreground: #69756e;
+  --border: #dfe4df;
+  --input: #dfe4df;
+  --ring: #328566;
+}
+.dark {
+  --background: #101713;
+  --foreground: #f2f6f3;
+  --card: #17211b;
+  --card-foreground: #f2f6f3;
+  --primary: #71cfa8;
+  --primary-foreground: #0d2c20;
+  --secondary: #22352b;
+  --secondary-foreground: #d5eee1;
+  --muted: #1c2922;
+  --muted-foreground: #a3b1a9;
+  --border: #2c3a32;
+  --input: #2c3a32;
+  --ring: #71cfa8;
+}
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+  button {
+    cursor: pointer;
+  }
+}
+.eyebrow {
+  @apply text-[11px] font-bold uppercase tracking-[0.13em] text-muted-foreground;
+}
+.payroll-card {
+  background:
+    radial-gradient(
+      circle at 85% 15%,
+      rgba(124, 214, 171, 0.28),
+      transparent 28%
+    ),
+    linear-gradient(135deg, #123f31 0%, #176448 62%, #267c59 100%);
+}
