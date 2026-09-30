@@ -140,7 +140,10 @@ create policy adjustment_manage on public.payroll_adjustments for all using(publ
 create policy audit_read on public.audit_logs for select using(organization_id=public.current_org() and public.is_manager());
 create policy outbox_manage on public.notification_outbox for all using(organization_id=public.current_org() and public.is_manager()) with check(organization_id=public.current_org() and public.is_manager());
 
-alter publication supabase_realtime add table public.shifts, public.attendance_events, public.attendance_exceptions, public.explanations, public.overtime_requests, public.payroll_lines;
+do $ begin
+  alter publication supabase_realtime add table public.shifts, public.attendance_events, public.attendance_exceptions, public.explanations, public.overtime_requests, public.payroll_lines;
+exception when others then null;
+end $;
 
 
 -- STEP 2: FUNCTIONS & REALTIME VIEW
