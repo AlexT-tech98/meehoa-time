@@ -197,8 +197,22 @@ export default function Home() {
   const pendingApprovalsCount = approvals.filter(
     (a) => a.status === 'pending',
   ).length;
-  const pendingAmount = pendingApprovalsCount * 280000;
-  const confirmedFund = 13850000 + (3 - pendingApprovalsCount) * 250000;
+  const pendingAmount = approvals
+    .filter((a) => a.status === 'pending')
+    .reduce((sum, a) => sum + ((a.proposedMinutes || 0) * 25000) / 60, 0);
+
+  // Tính quỹ lương thực tế dựa trên các ca có lịch trong tuần
+  const totalScheduledMinutes = Object.values(scheduleGrid)
+    .flat()
+    .reduce((sum, shiftStr) => {
+      if (!shiftStr || shiftStr === 'OFF') return sum;
+      const parts = shiftStr.split('–');
+      if (parts.length !== 2) return sum;
+      const [sH, sM] = parts[0].split(':').map(Number);
+      const [eH, eM] = parts[1].split(':').map(Number);
+      return sum + Math.max(0, (eH * 60 + (eM || 0)) - (sH * 60 + (sM || 0)));
+    }, 0);
+  const confirmedFund = Math.round((totalScheduledMinutes / 60) * 25000);
 
   useEffect(() => {
     const client = supabase;
@@ -566,6 +580,7 @@ export default function Home() {
             pending={pendingAmount}
             pendingCount={pendingApprovalsCount}
             staff={staffList}
+            grid={scheduleGrid}
             onNavigate={setTab}
           />
         )}
@@ -798,15 +813,48 @@ function OverviewTab({
   fund,
   pending,
   pendingCount,
-  staff,
+  staff: _staff,
+  grid,
   onNavigate,
 }: {
   fund: number;
   pending: number;
   pendingCount: number;
   staff: UserProfile[];
+  grid: Record<string, string[]>;
   onNavigate: (t: Tab) => void;
 }) {
+  const totalShiftsThisWeek = Object.values(grid).flat().filter((s) => s && s !== 'OFF').length;
+
+  // Tính số ca làm việc hôm nay (Thứ 2 = 0, ..., CN = 6)
+  const todayDay = new Date().getDay();
+  const todayIndex = todayDay === 0 ? 6 : todayDay - 1;
+  const now = new Date();
+  const currentMin = now.getHours() * 60 + now.getMinutes();
+
+  let activeWorkingCount = 0;
+  const todayShiftsList: { name: string; shift: string; location: string }[] = [];
+
+  for (const [name, shifts] of Object.entries(grid)) {
+    const todayShift = shifts[todayIndex];
+    if (todayShift && todayShift !== 'OFF') {
+      todayShiftsList.push({
+        name,
+        shift: todayShift,
+        location: 'Meehoasg - Tiệm Hoa Tươi Bình Thạnh',
+      });
+      const parts = todayShift.split('–');
+      if (parts.length === 2) {
+        const [sH, sM] = parts[0].split(':').map(Number);
+        const [eH, eM] = parts[1].split(':').map(Number);
+        const startMin = sH * 60 + (sM || 0);
+        const endMin = eH * 60 + (eM || 0);
+        if (currentMin >= startMin && currentMin <= endMin) {
+          activeWorkingCount++;
+        }
+      }
+    }
+  }
   return (
     <>
       <section className="payroll-card overflow-hidden rounded-[28px] p-6 text-white shadow-xl shadow-emerald-950/15 sm:p-8">
@@ -841,7 +889,7 @@ function OverviewTab({
               Dự kiến ngân sách tháng
             </p>
             <p className="mt-1 text-base font-bold sm:text-lg">
-              {formatMoney(fund + pending + 9500000)}
+              {formatMoney(fund + pending)}
             </p>
           </div>
         </div>
@@ -854,7 +902,7 @@ function OverviewTab({
           className="rounded-2xl border bg-card p-4 text-left shadow-2xs hover:border-primary transition"
           aria-label="Xem ca có lịch"
         >
-          <p className="text-2xl font-bold text-foreground">8</p>
+          <p className="text-2xl font-bold text-foreground">{totalShiftsThisWeek}</p>
           <p className="mt-1 text-xs text-muted-foreground">Có lịch tuần này</p>
         </button>
 
@@ -864,7 +912,7 @@ function OverviewTab({
           className="rounded-2xl border bg-card p-4 text-left shadow-2xs hover:border-primary transition"
           aria-label="Xem nhân sự đang làm"
         >
-          <p className="text-2xl font-bold text-emerald-600">3</p>
+          <p className="text-2xl font-bold text-emerald-600">{activeWorkingCount}</p>
           <p className="mt-1 text-xs text-muted-foreground">Đang trong ca</p>
         </button>
 
@@ -896,48 +944,39 @@ function OverviewTab({
           </button>
         </div>
 
-        <div className="overflow-hidden rounded-[24px] border bg-card shadow-2xs">
-          {staff.slice(1, 4).map((p, i) => (
-            <div
-              key={p.id}
-              className={`flex items-center gap-3 p-4 sm:px-5 ${i ? 'border-t' : ''}`}
-            >
-              <div className="grid size-10 shrink-0 place-items-center rounded-full bg-secondary text-xs font-bold text-primary">
-                {p.initials}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="font-bold text-sm">{p.name}</p>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                      i === 0
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : i === 1
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-muted text-muted-foreground'
-                    }`}
-                  >
-                    {i === 0
-                      ? 'Đang làm · Vào 10:02'
-                      : i === 1
-                        ? 'Trễ 11p · Chờ duyệt'
-                        : 'Ca tối 17:30'}
-                  </span>
+        {todayShiftsList.length === 0 ? (
+          <div className="rounded-[24px] border bg-card p-8 text-center text-muted-foreground shadow-2xs">
+            <CalendarDays className="size-8 mx-auto mb-2 text-muted-foreground/50" />
+            <p className="font-semibold text-sm text-foreground">Hôm nay chưa có ca làm việc nào được xếp</p>
+            <p className="text-xs mt-1">Quản lý có thể vào mục &quot;Xếp lịch&quot; để phân công ca cho nhân viên.</p>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-[24px] border bg-card shadow-2xs">
+            {todayShiftsList.map((item, i) => (
+              <div
+                key={item.name}
+                className={`flex items-center gap-3 p-4 sm:px-5 ${i ? 'border-t' : ''}`}
+              >
+                <div className="grid size-10 shrink-0 place-items-center rounded-full bg-secondary text-xs font-bold text-primary">
+                  {item.name.slice(0, 2).toUpperCase()}
                 </div>
-                <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Clock3 className="size-3" />
-                  {i === 0
-                    ? '10:00–18:00'
-                    : i === 1
-                      ? '08:00–16:00'
-                      : '17:30–21:30'}{' '}
-                  · {p.locationName}
-                </p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-sm">{item.name}</p>
+                    <span className="rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] font-bold">
+                      {item.shift}
+                    </span>
+                  </div>
+                  <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Clock3 className="size-3" />
+                    {item.shift} · {item.location}
+                  </p>
+                </div>
+                <MapPin className="size-4 text-emerald-600 shrink-0" />
               </div>
-              <MapPin className="size-4 text-emerald-600 shrink-0" />
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </section>
     </>
   );
