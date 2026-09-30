@@ -713,9 +713,9 @@ grant execute on function public.lock_payroll_period(uuid) to authenticated;
 create or replace function public.bootstrap_organization(
   p_owner_user_id uuid,
   p_org_name text default 'MEEHOA TIME',
-  p_store_name text default 'MEEHOA Flagship',
-  p_lat double precision default 10.7769,
-  p_lng double precision default 106.7009,
+  p_store_name text default 'Meehoasg - Tiệm Hoa Tươi Bình Thạnh',
+  p_lat double precision default 10.7932193,
+  p_lng double precision default 106.7037517,
   p_radius integer default 120
 )
 returns jsonb

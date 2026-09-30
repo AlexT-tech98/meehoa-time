@@ -109,7 +109,7 @@ export interface WageHistoryRecord {
 const formatMoney = (val: number) =>
   new Intl.NumberFormat('vi-VN').format(Math.round(val)) + 'đ';
 
-const SHOP_COORDINATES = { lat: 10.7769, lng: 106.7009 }; // MEEHOA Flagship
+const SHOP_COORDINATES = { lat: 10.7932193, lng: 106.7037517 }; // Meehoasg - Tiệm Hoa Tươi Bình Thạnh
 
 const INITIAL_STAFF: UserProfile[] = [
   {
@@ -125,7 +125,7 @@ const INITIAL_STAFF: UserProfile[] = [
     monthlySalary: 15000000,
     allowance: 1000000,
     effectiveDate: '2026-09-01',
-    locationName: 'MEEHOA Flagship',
+    locationName: 'Meehoasg - Bình Thạnh',
   },
   {
     id: 'user-emp-01',
@@ -140,7 +140,7 @@ const INITIAL_STAFF: UserProfile[] = [
     monthlySalary: 0,
     allowance: 300000,
     effectiveDate: '2026-09-01',
-    locationName: 'MEEHOA Flagship',
+    locationName: 'Meehoasg - Bình Thạnh',
   },
   {
     id: 'user-emp-02',
@@ -155,7 +155,7 @@ const INITIAL_STAFF: UserProfile[] = [
     monthlySalary: 6500000,
     allowance: 500000,
     effectiveDate: '2026-09-01',
-    locationName: 'MEEHOA Flagship',
+    locationName: 'Meehoasg - Bình Thạnh',
   },
   {
     id: 'user-emp-03',
@@ -170,7 +170,7 @@ const INITIAL_STAFF: UserProfile[] = [
     monthlySalary: 0,
     allowance: 0,
     effectiveDate: '2026-08-01',
-    locationName: 'MEEHOA Flagship',
+    locationName: 'Meehoasg - Bình Thạnh',
   },
   {
     id: 'user-emp-04',
@@ -185,7 +185,7 @@ const INITIAL_STAFF: UserProfile[] = [
     monthlySalary: 0,
     allowance: 200000,
     effectiveDate: '2026-09-01',
-    locationName: 'MEEHOA Flagship',
+    locationName: 'Meehoasg - Bình Thạnh',
   },
 ];
 
@@ -247,7 +247,7 @@ export default function Home() {
 
   const [shopSettings, setShopSettings] = useState({
     name: 'MEEHOA TIME',
-    storeName: 'MEEHOA Flagship',
+    storeName: 'Meehoasg - Bình Thạnh',
     lat: SHOP_COORDINATES.lat,
     lng: SHOP_COORDINATES.lng,
     radius: 120,
@@ -427,7 +427,7 @@ export default function Home() {
               monthlySalary: Number(data.monthly_salary) || 0,
               allowance: 0,
               effectiveDate: data.effective_date || '2026-09-01',
-              locationName: 'MEEHOA Flagship',
+              locationName: 'Meehoasg - Bình Thạnh',
             });
           }
 
@@ -448,7 +448,7 @@ export default function Home() {
                   monthlySalary: Number(p.monthly_salary) || 0,
                   allowance: 0,
                   effectiveDate: p.effective_date || '2026-09-01',
-                  locationName: 'MEEHOA Flagship',
+                  locationName: 'Meehoasg - Bình Thạnh',
                 }))
               );
             }
@@ -1949,7 +1949,7 @@ function SettingsTab({
       monthlySalary: newType === 'monthly' ? newRate : 0,
       allowance: 0,
       effectiveDate: new Date().toISOString().slice(0, 10),
-      locationName: 'MEEHOA Flagship',
+      locationName: 'Meehoasg - Bình Thạnh',
     };
     onUpdateStaff((prev) => [...prev, newMember]);
     setAddStaffModal(false);
