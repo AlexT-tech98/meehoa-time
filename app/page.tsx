@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   Building2,
@@ -31,6 +31,29 @@ import {
 import { hasSupabase, supabase } from '@/lib/supabase';
 import { Switch } from '@/components/ui/switch';
 import { distanceMeters } from '@/lib/time-engine';
+import {
+  getSession,
+  signIn,
+  signOut,
+  fetchProfile,
+  fetchStaffProfiles,
+  createStaffProfile,
+  updateStaffProfile,
+  fetchShopLocation,
+  updateShopLocation,
+  fetchShopSettings,
+  updateShopSettings,
+  fetchTodayAttendance,
+  recordAttendance,
+  fetchShiftsForRange,
+  saveWeeklyShifts,
+  fetchPendingApprovals,
+  reviewApproval,
+  fetchCurrentPayrollPeriod,
+  lockPayroll,
+  ApprovalItemData,
+  DbProfile,
+} from '@/lib/data-service';
 
 // ==============================================================================
 // TYPES & DATA CONTRACTS
@@ -49,6 +72,7 @@ export type Tab =
 
 export interface UserProfile {
   id: string;
+  organizationId?: string;
   employeeCode: string;
   name: string;
   initials: string;
@@ -63,22 +87,7 @@ export interface UserProfile {
   locationName: string;
 }
 
-export interface ApprovalItem {
-  id: string;
-  shiftId: string;
-  employeeId: string;
-  employeeName: string;
-  kind: 'exception' | 'overtime';
-  typeLabel: string;
-  dateStr: string;
-  shiftTime: string;
-  actualTimes?: string;
-  evidence: string;
-  reason: string;
-  requestedPayable: string;
-  proposedMinutes?: number;
-  status: 'pending' | 'approved' | 'rejected';
-}
+export type ApprovalItem = ApprovalItemData;
 
 export interface ShopSettingsConfig {
   name: string;
@@ -111,23 +120,27 @@ const formatMoney = (val: number) =>
 
 const SHOP_COORDINATES = { lat: 10.7932193, lng: 106.7037517 }; // Meehoasg - Tiệm Hoa Tươi Bình Thạnh
 
-const INITIAL_STAFF: UserProfile[] = [
-  {
-    id: 'user-owner-01',
-    employeeCode: 'QL01',
-    name: 'Chủ cửa hàng MEEHOA',
-    initials: 'CH',
-    email: 'owner@meehoa.vn',
-    phone: '',
-    role: 'owner',
-    payrollType: 'monthly',
-    hourlyRate: 0,
-    monthlySalary: 15000000,
+function mapDbProfileToUser(
+  p: DbProfile,
+  locationName: string = 'Meehoasg - Tiệm Hoa Tươi Bình Thạnh',
+): UserProfile {
+  return {
+    id: p.id,
+    organizationId: p.organization_id,
+    employeeCode: p.employee_code || 'NV',
+    name: p.full_name || 'Nhân viên',
+    initials: (p.full_name || 'NV').slice(0, 2).toUpperCase(),
+    email: p.email || '',
+    phone: p.phone || '',
+    role: p.role,
+    payrollType: p.payroll_type,
+    hourlyRate: Number(p.hourly_rate) || 25000,
+    monthlySalary: Number(p.monthly_salary) || 0,
     allowance: 0,
-    effectiveDate: '2026-09-01',
-    locationName: 'Meehoasg - Tiệm Hoa Tươi Bình Thạnh',
-  },
-];
+    effectiveDate: p.effective_date || '2026-09-01',
+    locationName,
+  };
+}
 
 function getWeekDays(referenceDate: Date = new Date()) {
   const current = new Date(referenceDate);
@@ -154,21 +167,175 @@ function getWeekDays(referenceDate: Date = new Date()) {
   return days;
 }
 
+// ==============================================================================
+// LOGIN SCREEN COMPONENT (MANDATORY AUTHENTICATION)
+// ==============================================================================
+
+function LoginScreen({
+  onLoginSuccess,
+  storeName,
+}: {
+  onLoginSuccess: (userProfile: UserProfile) => void;
+  storeName: string;
+}) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.SyntheticEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password.trim()) {
+      setErrorMsg('Vui lòng điền đầy đủ email và mật khẩu');
+      return;
+    }
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const data = await signIn(email.trim(), password);
+      if (data?.session?.user) {
+        const prof = await fetchProfile(data.session.user.id);
+        if (prof) {
+          const user = mapDbProfileToUser(prof, storeName);
+          onLoginSuccess(user);
+        } else {
+          setErrorMsg('Tài khoản chưa được liên kết hồ sơ nhân viên trong tổ chức MEEHOA');
+        }
+      }
+    } catch (err: unknown) {
+      console.error('Sign in error:', err);
+      const msg = err instanceof Error ? err.message : 'Đăng nhập không thành công';
+      if (msg.includes('Invalid login credentials')) {
+        setErrorMsg('Email hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại.');
+      } else {
+        setErrorMsg(msg);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#fffaf5] flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden">
+      <div className="absolute -top-32 -left-32 w-96 h-96 bg-emerald-100/60 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-amber-100/60 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="w-full max-w-md relative z-10">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center size-20 rounded-3xl bg-[#176448] text-white shadow-xl shadow-emerald-950/20 mb-4 ring-8 ring-emerald-50">
+            <span className="text-3xl font-extrabold tracking-tight">M</span>
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight text-[#17231d]">
+            MEEHOA TIME
+          </h1>
+          <p className="text-xs font-semibold text-emerald-800 mt-1 uppercase tracking-widest">
+            {storeName}
+          </p>
+          <p className="text-xs text-muted-foreground mt-2 max-w-xs mx-auto">
+            Hệ thống Chấm công GPS Geofence, Xếp lịch ca & Quản lý lương
+          </p>
+        </div>
+
+        <div className="rounded-[32px] border border-emerald-100 bg-white/95 p-8 shadow-xl backdrop-blur-md">
+          <div className="mb-6">
+            <h2 className="text-lg font-bold text-foreground">Đăng nhập hệ thống</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Nhập email và mật khẩu được cấp để bắt đầu
+            </p>
+          </div>
+
+          {errorMsg && (
+            <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs font-medium text-rose-700 flex items-start gap-2.5">
+              <AlertCircle className="size-4 shrink-0 mt-0.5" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="login-email" className="block text-xs font-bold text-foreground mb-1.5">
+                Email đăng nhập
+              </label>
+              <input
+                id="login-email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="vd: ql01@meehoa.vn"
+                className="h-12 w-full rounded-2xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="login-password" className="block text-xs font-bold text-foreground mb-1.5">
+                Mật khẩu
+              </label>
+              <input
+                id="login-password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="h-12 w-full rounded-2xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="mt-2 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#176448] px-5 text-sm font-bold text-white shadow-md hover:bg-[#124d37] transition active:scale-[0.99] disabled:opacity-60 cursor-pointer"
+            >
+              {loading ? (
+                <>
+                  <div className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Đang xác thực...</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="size-4" />
+                  <span>Đăng nhập</span>
+                </>
+              )}
+            </button>
+          </form>
+
+          <div className="mt-6 pt-5 border-t text-center text-xs text-muted-foreground">
+            <p>Chưa có tài khoản hoặc quên mật khẩu?</p>
+            <p className="mt-1 font-semibold text-emerald-800">
+              Vui lòng liên hệ Quản lý cửa hàng (QL01)
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 text-center text-[11px] text-muted-foreground">
+          Được bảo mật bởi Supabase Cloud (Singapore) · GPS Bán kính 120m
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==============================================================================
+// MAIN APP COMPONENT
+// ==============================================================================
+
 export default function Home() {
-  const [activeUser, setActiveUser] = useState<UserProfile>(INITIAL_STAFF[0]);
+  const [activeUser, setActiveUser] = useState<UserProfile | null>(null);
+  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+
   const [tab, setTab] = useState<Tab>('overview');
   const [toast, setToast] = useState<string>('');
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
 
-  const [staffList, setStaffList] = useState<UserProfile[]>(INITIAL_STAFF);
+  const [staffList, setStaffList] = useState<UserProfile[]>([]);
   const [wageHistories, setWageHistories] = useState<WageHistoryRecord[]>([]);
 
-  const [shopSettings, setShopSettings] = useState({
+  const [shopSettings, setShopSettings] = useState<ShopSettingsConfig>({
     name: 'MEEHOA TIME',
-    storeName: 'Meehoasg - Bình Thạnh',
+    storeName: 'Meehoasg - Tiệm Hoa Tươi Bình Thạnh',
     lat: SHOP_COORDINATES.lat,
     lng: SHOP_COORDINATES.lng,
     radius: 120,
@@ -190,18 +357,177 @@ export default function Home() {
   }, [currentWeekOffset]);
 
   const [scheduleGrid, setScheduleGrid] = useState<Record<string, string[]>>({});
-
   const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
-
   const [payrollLocked, setPayrollLocked] = useState(false);
-  const pendingApprovalsCount = approvals.filter(
-    (a) => a.status === 'pending',
-  ).length;
+
+  const checkAuthAndLoad = useCallback(async () => {
+    
+    const session = await getSession();
+    if (session?.user) {
+      const prof = await fetchProfile(session.user.id);
+      if (prof) {
+        const loc = await fetchShopLocation();
+        const st = await fetchShopSettings();
+
+        if (loc) {
+          setShopSettings((prev) => ({
+            ...prev,
+            storeName: loc.name,
+            lat: loc.latitude,
+            lng: loc.longitude,
+            radius: loc.radius_meters || 120,
+          }));
+        }
+        if (st) {
+          setShopSettings((prev) => ({
+            ...prev,
+            graceMinutes: st.grace_minutes,
+            roundingMinutes: st.rounding_minutes,
+            requireGeofence: st.require_geofence,
+            requireOtApproval: st.require_ot_approval,
+            holdIncomplete: st.hold_incomplete_attendance,
+            standardMonthlyDays: st.standard_monthly_days,
+            standardDailyHours: st.standard_daily_hours,
+          }));
+        }
+
+        const user = mapDbProfileToUser(prof, loc?.name);
+        setActiveUser(user);
+        setCurrentUserProfile(user);
+
+        if (user.role === 'owner' || user.role === 'admin') {
+          const allProfs = await fetchStaffProfiles();
+          const mappedStaff = allProfs.map((p) => mapDbProfileToUser(p, loc?.name));
+          setStaffList(mappedStaff);
+
+          const approvalsData = await fetchPendingApprovals(prof.organization_id);
+          setApprovals(approvalsData);
+
+          const period = await fetchCurrentPayrollPeriod(prof.organization_id);
+          setPayrollLocked(period?.status === 'locked');
+          setTab('overview');
+        } else {
+          setStaffList([user]);
+          setTab('checkin');
+        }
+      } else {
+        setActiveUser(null);
+        setCurrentUserProfile(null);
+      }
+    } else {
+      setActiveUser(null);
+      setCurrentUserProfile(null);
+    }
+    setAuthChecking(false);
+  }, []);
+
+  // Check auth session on mount
+  useEffect(() => {
+    let active = true;
+    void Promise.resolve().then(async () => {
+      if (active) {
+        await checkAuthAndLoad();
+      }
+    });
+
+    const client = supabase;
+    if (!hasSupabase || !client) return;
+
+    const { data: authSub } = client.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        void checkAuthAndLoad();
+      } else {
+        setActiveUser(null);
+        setCurrentUserProfile(null);
+      }
+    });
+
+    return () => {
+      active = false;
+      authSub?.subscription.unsubscribe();
+    };
+  }, [checkAuthAndLoad]);
+
+  // Load shifts into scheduleGrid from Supabase when week or staff changes
+  useEffect(() => {
+    let isCancelled = false;
+    if (!activeUser?.organizationId || staffList.length === 0) return;
+
+    async function loadShifts() {
+      const rangeStart = `${weekDays[0].iso}T00:00:00+07:00`;
+      const rangeEnd = `${weekDays[6].iso}T23:59:59+07:00`;
+      const shifts = await fetchShiftsForRange(activeUser!.organizationId!, rangeStart, rangeEnd);
+      if (isCancelled) return;
+
+      const newGrid: Record<string, string[]> = {};
+      for (const m of staffList) {
+        newGrid[m.name] = Array(7).fill('OFF');
+      }
+
+      for (const s of shifts) {
+        const member = staffList.find((m) => m.id === s.employee_id);
+        if (!member) continue;
+        const shiftStart = new Date(s.starts_at);
+        const shiftEnd = new Date(s.ends_at);
+        const shiftIso = s.starts_at.slice(0, 10);
+        const dayIdx = weekDays.findIndex((d) => d.iso === shiftIso);
+        if (dayIdx >= 0 && dayIdx < 7) {
+          const sH = String(shiftStart.getHours()).padStart(2, '0');
+          const sM = String(shiftStart.getMinutes()).padStart(2, '0');
+          const eH = String(shiftEnd.getHours()).padStart(2, '0');
+          const eM = String(shiftEnd.getMinutes()).padStart(2, '0');
+          newGrid[member.name][dayIdx] = `${sH}:${sM}–${eH}:${eM}`;
+        }
+      }
+      setScheduleGrid(newGrid);
+    }
+
+    void loadShifts();
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeUser?.organizationId, staffList, weekDays]);
+
+  // Realtime subscription for live business sync
+  useEffect(() => {
+    const client = supabase;
+    if (!hasSupabase || !client || !activeUser?.organizationId) return;
+
+    const channel = client
+      .channel('meehoa-live-sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'attendance_events' },
+        () => {
+          setToast('Có lượt chấm công mới ghi nhận');
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'overtime_requests' },
+        () => {
+          void fetchPendingApprovals(activeUser.organizationId!).then(setApprovals);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [activeUser?.organizationId]);
+
+  // Auto clear toast
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(''), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const pendingApprovalsCount = approvals.filter((a) => a.status === 'pending').length;
   const pendingAmount = approvals
     .filter((a) => a.status === 'pending')
     .reduce((sum, a) => sum + ((a.proposedMinutes || 0) * 25000) / 60, 0);
 
-  // Tính quỹ lương thực tế dựa trên các ca có lịch trong tuần
   const totalScheduledMinutes = Object.values(scheduleGrid)
     .flat()
     .reduce((sum, shiftStr) => {
@@ -214,174 +540,24 @@ export default function Home() {
     }, 0);
   const confirmedFund = Math.round((totalScheduledMinutes / 60) * 25000);
 
-  useEffect(() => {
-    const client = supabase;
-    if (!hasSupabase || !client) return;
-    const channel = client
-      .channel('meehoa-v1-live')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'payroll_lines' },
-        () => {
-          setToast('Quỹ lương vừa được đồng bộ từ Supabase');
-        },
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'attendance_events' },
-        () => {
-          setToast('Có dữ liệu chấm công mới');
-        },
-      )
-      .subscribe();
+  const handleDecideApproval = async (id: string, approved: boolean) => {
+    if (!activeUser?.organizationId) return;
+    const item = approvals.find((a) => a.id === id);
+    if (!item) return;
 
-    return () => {
-      void client.removeChannel(channel);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(''), 3000);
-    return () => clearTimeout(t);
-  }, [toast]);
-
-  
-  useEffect(() => {
-    const client = supabase;
-    if (!hasSupabase || !client) return;
-
-    void (async () => {
-      try {
-        // Luôn nạp thông tin chi nhánh & tọa độ GPS thực tế từ Supabase
-        const { data: locs } = await client.from('locations').select('*').limit(1);
-        if (locs && locs.length > 0) {
-          const loc = locs[0];
-          setShopSettings((prev) => ({
-            ...prev,
-            storeName: loc.name,
-            lat: loc.latitude,
-            lng: loc.longitude,
-            radius: loc.radius_meters || 120,
-          }));
-        }
-
-        // Nạp danh sách hồ sơ nhân viên thực tế
-        const { data: profs } = await client.from('profiles').select('*').order('employee_code');
-        if (profs && profs.length > 0) {
-          const mapped: UserProfile[] = profs.map((p) => ({
-            id: p.id,
-            employeeCode: p.employee_code || 'NV',
-            name: p.full_name || 'Nhân viên',
-            initials: (p.full_name || 'NV').slice(0, 2).toUpperCase(),
-            email: p.email || '',
-            phone: p.phone || '',
-            role: p.role as Role,
-            payrollType: p.payroll_type as PayrollType,
-            hourlyRate: Number(p.hourly_rate) || 25000,
-            monthlySalary: Number(p.monthly_salary) || 0,
-            allowance: 0,
-            effectiveDate: p.effective_date || '2026-09-01',
-            locationName: locs?.[0]?.name || 'Meehoasg - Tiệm Hoa Tươi Bình Thạnh',
-          }));
-          setStaffList(mapped);
-          const ownerUser = mapped.find((m) => m.role === 'owner') || mapped[0];
-          if (ownerUser) setActiveUser(ownerUser);
-        }
-      } catch (err) {
-        console.error('Error fetching data from Supabase:', err);
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    const client = supabase;
-    if (!hasSupabase || !client) return;
-
-    void (async () => {
-      try {
-        const {
-          data: { session },
-        } = await client.auth.getSession();
-        if (session?.user) {
-          const { data } = await client
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
-          if (data) {
-            setActiveUser({
-              id: data.id,
-              employeeCode: data.employee_code || 'NV',
-              name:
-                data.full_name || session.user.email?.split('@')[0] || 'User',
-              initials: (data.full_name || 'ME').slice(0, 2).toUpperCase(),
-              email: session.user.email || '',
-              phone: data.phone || '',
-              role: data.role as Role,
-              payrollType: data.payroll_type as PayrollType,
-              hourlyRate: Number(data.hourly_rate) || 25000,
-              monthlySalary: Number(data.monthly_salary) || 0,
-              allowance: 0,
-              effectiveDate: data.effective_date || '2026-09-01',
-              locationName: 'Meehoasg - Bình Thạnh',
-            });
-          }
-
-            // Đồng bộ danh sách nhân viên thực tế từ Supabase
-            const { data: allProfiles } = await client.from('profiles').select('*').order('employee_code');
-            if (allProfiles && allProfiles.length > 0) {
-              setStaffList(
-                allProfiles.map((p) => ({
-                  id: p.id,
-                  employeeCode: p.employee_code || 'NV',
-                  name: p.full_name || 'Nhân viên',
-                  initials: (p.full_name || 'NV').slice(0, 2).toUpperCase(),
-                  email: p.email || '',
-                  phone: p.phone || '',
-                  role: p.role as Role,
-                  payrollType: p.payroll_type as PayrollType,
-                  hourlyRate: Number(p.hourly_rate) || 25000,
-                  monthlySalary: Number(p.monthly_salary) || 0,
-                  allowance: 0,
-                  effectiveDate: p.effective_date || '2026-09-01',
-                  locationName: 'Meehoasg - Bình Thạnh',
-                }))
-              );
-            }
-
-        }
-      } catch {
-        // Safe fallback
-      }
-    })();
-
-    const { data: authListener } = client.auth.onAuthStateChange(
-      (_event, session) => {
-        if (!session) {
-          setActiveUser(INITIAL_STAFF[0]);
-        }
-      },
-    );
-
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
-  }, []);
-
-  const handleDecideApproval = (id: string, approved: boolean) => {
-    setApprovals((prev) =>
-      prev.map((item) =>
-        item.id === id
-          ? { ...item, status: approved ? 'approved' : 'rejected' }
-          : item,
-      ),
-    );
-    setToast(
-      approved
-        ? 'Đã duyệt và cập nhật Payable vào quỹ lương'
-        : 'Đã từ chối yêu cầu, giữ nguyên lịch chuẩn',
-    );
+    try {
+      await reviewApproval(item, approved, activeUser.id, activeUser.organizationId);
+      setToast(
+        approved
+          ? 'Đã duyệt và cập nhật Payable vào quỹ lương'
+          : 'Đã từ chối yêu cầu, giữ nguyên lịch chuẩn',
+      );
+      const updated = await fetchPendingApprovals(activeUser.organizationId);
+      setApprovals(updated);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Lỗi xử lý duyệt';
+      setToast('Lỗi duyệt: ' + msg);
+    }
   };
 
   const handleSelectRole = (user: UserProfile) => {
@@ -393,58 +569,173 @@ export default function Home() {
       setTab('checkin');
     }
     setAuthModalOpen(false);
-    setToast(
-      `Đã chuyển sang tài khoản: ${user.name} (${user.role.toUpperCase()})`,
-    );
+    setToast(`Đã chuyển sang tài khoản: ${user.name} (${user.role.toUpperCase()})`);
   };
 
-  const handleSupabaseSignIn = (e: React.SyntheticEvent) => {
-    e.preventDefault();
-    const client = supabase;
-    if (!hasSupabase || !client) {
-      setToast(
-        'Chế độ Demo: Vui lòng chọn tài khoản từ danh sách nhanh bên dưới',
-      );
-      return;
-    }
-    setAuthLoading(true);
-    void (async () => {
-      const { data, error } = await client.auth.signInWithPassword({
-        email: loginEmail,
-        password: loginPassword,
-      });
-      setAuthLoading(false);
-      if (error) {
-        setToast('Lỗi đăng nhập: ' + error.message);
-      } else if (data.user) {
-        setAuthModalOpen(false);
-        setToast('Đăng nhập thành công!');
+  const handleSaveSchedule = async () => {
+    if (!activeUser?.organizationId) return;
+    try {
+      setToast('Đang lưu lịch phân ca vào Supabase...');
+      const shiftsToInsert: Array<{
+        employee_id: string;
+        location_id: string | null;
+        starts_at: string;
+        ends_at: string;
+        note?: string;
+      }> = [];
+
+      const affectedEmployeeIds: string[] = [];
+
+      for (const member of staffList) {
+        affectedEmployeeIds.push(member.id);
+        const memberShifts = scheduleGrid[member.name] || [];
+        for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+          const shiftStr = memberShifts[dayIndex];
+          if (shiftStr && shiftStr !== 'OFF') {
+            const parts = shiftStr.split('–');
+            if (parts.length === 2) {
+              const dayIso = weekDays[dayIndex].iso;
+              const starts_at = `${dayIso}T${parts[0].trim()}:00+07:00`;
+              const ends_at = `${dayIso}T${parts[1].trim()}:00+07:00`;
+              shiftsToInsert.push({
+                employee_id: member.id,
+                location_id: null,
+                starts_at,
+                ends_at,
+                note: `Ca ${member.name} (${shiftStr})`,
+              });
+            }
+          }
+        }
       }
-    })();
-  };
 
-  
-  const handleResetDemoData = () => {
-    setScheduleGrid({});
-    setApprovals([]);
-    setWageHistories([]);
-    setToast('Đã dọn sạch dữ liệu demo. Sẵn sàng vận hành thực tế!');
-  };
+      const rangeStartIso = `${weekDays[0].iso}T00:00:00+07:00`;
+      const rangeEndIso = `${weekDays[6].iso}T23:59:59+07:00`;
 
-  const handleSignOut = () => {
-    const client = supabase;
-    if (hasSupabase && client) {
-      void client.auth.signOut();
+      await saveWeeklyShifts(
+        activeUser.organizationId,
+        activeUser.id,
+        shiftsToInsert,
+        rangeStartIso,
+        rangeEndIso,
+        affectedEmployeeIds,
+      );
+
+      setToast(`Đã lưu ${shiftsToInsert.length} ca làm việc vào Supabase`);
+    } catch (err: unknown) {
+      console.error('Failed to save shifts:', err);
+      const msg = err instanceof Error ? err.message : 'Lỗi khi lưu ca';
+      setToast('Lỗi lưu lịch: ' + msg);
     }
-    setActiveUser(INITIAL_STAFF[0]);
+  };
+
+  const handleLockPayroll = async () => {
+    if (!activeUser?.organizationId) return;
+    try {
+      const period = await fetchCurrentPayrollPeriod(activeUser.organizationId);
+      if (period) {
+        await lockPayroll(period.id, activeUser.organizationId, activeUser.id);
+      }
+      setPayrollLocked(true);
+      setToast('Đã khóa snapshot bảng lương tháng này vào Supabase');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Lỗi khóa bảng lương';
+      setToast('Lỗi khóa bảng lương: ' + msg);
+    }
+  };
+
+  const handleUpdateShopSettings = async (newSettings: ShopSettingsConfig) => {
+    setShopSettings(newSettings);
+    if (!activeUser?.organizationId) return;
+    try {
+      await updateShopSettings(activeUser.organizationId, {
+        grace_minutes: newSettings.graceMinutes,
+        require_geofence: newSettings.requireGeofence,
+        require_ot_approval: newSettings.requireOtApproval,
+        hold_incomplete_attendance: newSettings.holdIncomplete,
+        standard_monthly_days: newSettings.standardMonthlyDays,
+        standard_daily_hours: newSettings.standardDailyHours,
+        rounding_minutes: newSettings.roundingMinutes,
+        max_gps_accuracy_meters: 150,
+      });
+      const loc = await fetchShopLocation();
+      if (loc) {
+        await updateShopLocation(loc.id, {
+          name: newSettings.storeName,
+          latitude: newSettings.lat,
+          longitude: newSettings.lng,
+          radius_meters: newSettings.radius,
+        });
+      }
+      setToast('Đã cập nhật cấu hình cửa hàng & quy tắc vào Supabase');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Lỗi cập nhật cấu hình';
+      setToast('Lỗi cấu hình: ' + msg);
+    }
+  };
+
+  const handleSaveStaffEdit = async (staffToSave: UserProfile) => {
+    if (!activeUser?.organizationId) return;
+    try {
+      await updateStaffProfile(staffToSave.id, {
+        full_name: staffToSave.name,
+        role: staffToSave.role,
+        payroll_type: staffToSave.payrollType,
+        hourly_rate: staffToSave.hourlyRate,
+        monthly_salary: staffToSave.monthlySalary,
+        effective_date: staffToSave.effectiveDate,
+      });
+      setStaffList((prev) =>
+        prev.map((s) => (s.id === staffToSave.id ? staffToSave : s)),
+      );
+      setToast(`Đã cập nhật hồ sơ lương của ${staffToSave.name}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Lỗi cập nhật hồ sơ';
+      setToast('Lỗi cập nhật: ' + msg);
+    }
+  };
+
+  const handleAddNewStaff = async (newMember: UserProfile) => {
+    if (!activeUser?.organizationId) return;
+    try {
+      const loc = await fetchShopLocation();
+      const created = await createStaffProfile({
+        organization_id: activeUser.organizationId,
+        employee_code: newMember.employeeCode,
+        full_name: newMember.name,
+        email: newMember.email,
+        phone: newMember.phone,
+        role: newMember.role,
+        payroll_type: newMember.payrollType,
+        hourly_rate: newMember.hourlyRate,
+        monthly_salary: newMember.monthlySalary,
+        effective_date: newMember.effectiveDate,
+        location_id: loc?.id || null,
+        active: true,
+      });
+      if (created) {
+        const mapped = mapDbProfileToUser(created, loc?.name);
+        setStaffList((prev) => [...prev, mapped]);
+        setToast(`Đã thêm nhân viên ${newMember.name} vào Supabase`);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Lỗi thêm nhân viên';
+      setToast('Lỗi thêm nhân viên: ' + msg);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    setActiveUser(null);
+    setCurrentUserProfile(null);
     setTab('overview');
-    setToast('Đã đăng xuất');
+    setToast('Đã đăng xuất an toàn');
   };
 
   const navigationTabs: [Tab, string, typeof LayoutDashboard, boolean][] =
     useMemo(() => {
       const isManager =
-        activeUser.role === 'owner' || activeUser.role === 'admin';
+        activeUser?.role === 'owner' || activeUser?.role === 'admin';
       return [
         ['overview', 'Tổng quan', LayoutDashboard, isManager],
         ['schedule', 'Xếp lịch', CalendarDays, true],
@@ -454,7 +745,7 @@ export default function Home() {
         ['settings', 'Cài đặt', Settings2, isManager],
         ['profile', 'Hồ sơ', UserCircle2, true],
       ];
-    }, [activeUser.role]);
+    }, [activeUser?.role]);
 
   const visibleTabs = navigationTabs.filter((t) => t[3]);
   const currentTitle = useMemo(() => {
@@ -480,6 +771,35 @@ export default function Home() {
     return `${dName}, ${dd}/${mm}/${yyyy}`;
   }, []);
 
+  // Show spinner while checking auth
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-[#fffaf5] flex flex-col justify-center items-center">
+        <div className="size-10 border-4 border-[#176448]/20 border-t-[#176448] rounded-full animate-spin" />
+        <p className="mt-4 text-xs font-semibold text-emerald-900 tracking-wider">
+          ĐANG TẢI MEEHOA TIME...
+        </p>
+      </div>
+    );
+  }
+
+  // If not logged in, enforce login screen
+  if (!activeUser) {
+    return (
+      <LoginScreen
+        storeName={shopSettings.storeName}
+        onLoginSuccess={(user) => {
+          setActiveUser(user);
+          setCurrentUserProfile(user);
+          void checkAuthAndLoad();
+        }}
+      />
+    );
+  }
+
+  const isManager =
+    activeUser.role === 'owner' || activeUser.role === 'admin';
+
   return (
     <main className="min-h-screen bg-background pb-28 text-foreground sm:pb-12">
       <header className="sticky top-0 z-30 border-b bg-background/90 backdrop-blur-xl">
@@ -498,7 +818,7 @@ export default function Home() {
               <div>
                 <p className="text-sm font-bold tracking-tight">MEEHOA TIME</p>
                 <p className="text-[11px] text-muted-foreground">
-                  Vận hành thực tế V1
+                  {shopSettings.storeName}
                 </p>
               </div>
             </button>
@@ -528,9 +848,13 @@ export default function Home() {
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setAuthModalOpen(true)}
+              onClick={() => {
+                if (currentUserProfile?.role === 'owner' || currentUserProfile?.role === 'admin') {
+                  setAuthModalOpen(true);
+                }
+              }}
               className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-xs font-bold shadow-xs hover:border-primary transition"
-              aria-label="Đổi tài khoản đăng nhập"
+              aria-label="Tài khoản đăng nhập"
             >
               <span className="grid size-6 place-items-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">
                 {activeUser.initials}
@@ -564,12 +888,8 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-xs font-semibold shadow-xs">
-              <span
-                className={`size-2 rounded-full ${hasSupabase ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}
-              />
-              <span>
-                {hasSupabase ? 'Supabase Realtime' : 'Chế độ Vận hành Sẵn sàng'}
-              </span>
+              <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Supabase Cloud (Singapore)</span>
             </div>
           </div>
         </div>
@@ -593,10 +913,8 @@ export default function Home() {
             grid={scheduleGrid}
             setGrid={setScheduleGrid}
             staff={staffList}
-            isManager={
-              activeUser.role === 'owner' || activeUser.role === 'admin'
-            }
-            onSaved={() => setToast('Đã lưu lịch vào hệ thống')}
+            isManager={isManager}
+            onSaved={handleSaveSchedule}
           />
         )}
 
@@ -610,13 +928,8 @@ export default function Home() {
             fund={confirmedFund}
             pending={pendingAmount}
             isLocked={payrollLocked}
-            onLock={() => {
-              setPayrollLocked(true);
-              setToast('Đã khóa snapshot bảng lương tháng này thành công');
-            }}
-            isManager={
-              activeUser.role === 'owner' || activeUser.role === 'admin'
-            }
+            onLock={handleLockPayroll}
+            isManager={isManager}
             activeUser={activeUser}
           />
         )}
@@ -637,14 +950,12 @@ export default function Home() {
 
         {tab === 'settings' && (
           <SettingsTab
-            onResetDemoData={handleResetDemoData}
             settings={shopSettings}
-            onUpdateSettings={(s) => {
-              setShopSettings(s);
-              setToast('Đã cập nhật cấu hình cửa hàng & quy tắc');
-            }}
+            onUpdateSettings={handleUpdateShopSettings}
             staff={staffList}
             onUpdateStaff={setStaffList}
+            onSaveStaffEdit={handleSaveStaffEdit}
+            onAddNewStaff={handleAddNewStaff}
             wageHistories={wageHistories}
             onAddWageHistory={(wh) => setWageHistories((prev) => [wh, ...prev])}
             onSaved={(msg) => setToast(msg)}
@@ -655,7 +966,13 @@ export default function Home() {
           <ProfileTab
             user={activeUser}
             onSignOut={handleSignOut}
-            onSwitchAccount={() => setAuthModalOpen(true)}
+            onSwitchAccount={() => {
+              if (currentUserProfile?.role === 'owner' || currentUserProfile?.role === 'admin') {
+                setAuthModalOpen(true);
+              } else {
+                setToast('Bạn đang đăng nhập tài khoản nhân viên');
+              }
+            }}
           />
         )}
       </div>
@@ -700,14 +1017,14 @@ export default function Home() {
             className="fixed inset-0 -z-10 h-full w-full cursor-default border-0 bg-transparent p-0"
           />
           <section
-            aria-label="Xác thực & Chuyển tài khoản"
+            aria-label="Chuyển góc nhìn nhân sự"
             className="w-full max-w-md rounded-t-[28px] bg-card p-6 shadow-2xl sm:rounded-[28px]"
           >
             <div className="flex items-start justify-between">
               <div>
-                <p className="eyebrow">Tài khoản & Phân quyền</p>
+                <p className="eyebrow">Quản lý góc nhìn</p>
                 <h2 className="mt-1 text-xl font-bold">
-                  Chọn tài khoản làm việc
+                  Chọn nhân sự cần xem
                 </h2>
               </div>
               <button
@@ -722,9 +1039,9 @@ export default function Home() {
 
             <div className="mt-4">
               <p className="text-xs font-semibold text-muted-foreground mb-2">
-                Chuyển nhanh phân quyền (Chủ shop / Quản lý / Nhân viên):
+                Danh sách nhân sự cửa hàng ({staffList.length}):
               </p>
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                 {staffList.map((user) => (
                   <button
                     key={user.id}
@@ -745,10 +1062,7 @@ export default function Home() {
                           {user.name}
                         </p>
                         <p className="text-[11px] text-muted-foreground">
-                          {user.employeeCode} ·{' '}
-                          {user.payrollType === 'hourly'
-                            ? 'Lương giờ'
-                            : 'Lương tháng'}
+                          {user.employeeCode} · `${user.payrollType === 'hourly' ? 'Lương giờ' : 'Lương tháng'}`
                         </p>
                       </div>
                     </div>
@@ -766,41 +1080,6 @@ export default function Home() {
                   </button>
                 ))}
               </div>
-            </div>
-
-            <div className="mt-5 border-t pt-4">
-              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                Đăng nhập bằng Supabase Auth
-              </p>
-              <form onSubmit={handleSupabaseSignIn} className="space-y-3">
-                <label className="block">
-                  <span className="sr-only">Email đăng nhập</span>
-                  <input
-                    type="email"
-                    value={loginEmail}
-                    onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="Email nhân viên (vd: nga@meehoa.vn)"
-                    className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/25"
-                  />
-                </label>
-                <label className="block">
-                  <span className="sr-only">Mật khẩu</span>
-                  <input
-                    type="password"
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    placeholder="Mật khẩu"
-                    className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/25"
-                  />
-                </label>
-                <button
-                  type="submit"
-                  disabled={authLoading}
-                  className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground shadow-sm hover:opacity-95 disabled:opacity-50"
-                >
-                  {authLoading ? 'Đang xử lý...' : 'Đăng nhập Supabase'}
-                </button>
-              </form>
             </div>
           </section>
         </div>
@@ -1640,7 +1919,7 @@ function PayrollTab({
 }
 
 function CheckinTab({
-  activeUser: _activeUser,
+  activeUser,
   shopSettings,
   onPunchRecorded,
 }: {
@@ -1660,6 +1939,40 @@ function CheckinTab({
   const [checkInTime, setCheckInTime] = useState<string | null>(null);
 
   const shopLocation = { lat: shopSettings.lat, lng: shopSettings.lng };
+
+  useEffect(() => {
+    if (!activeUser?.id) return;
+    void (async () => {
+      try {
+        const events = await fetchTodayAttendance(activeUser.id);
+        if (events && events.length > 0) {
+          const latest = events[0];
+          if (latest.event === 'check_in') {
+            setCheckedIn(true);
+            const t = new Date(latest.occurred_at).toLocaleTimeString('vi-VN', {
+              hour: '2-digit',
+              minute: '2-digit',
+            });
+            setCheckInTime(t);
+          } else {
+            setCheckedIn(false);
+          }
+          if (latest.latitude && latest.longitude) {
+            setUserCoords({
+              lat: latest.latitude,
+              lng: latest.longitude,
+              accuracy: Math.round(latest.accuracy_meters || 0),
+            });
+          }
+          if (typeof latest.distance_meters === 'number') {
+            setDistanceToShop(Math.round(latest.distance_meters));
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load today punches:', err);
+      }
+    })();
+  }, [activeUser?.id]);
 
   const handleFetchGpsAndPunch = (eventType: 'check_in' | 'check_out') => {
     setLocating(true);
@@ -1692,6 +2005,21 @@ function CheckinTab({
           setCheckInTime(nowStr);
         } else {
           setCheckedIn(false);
+        }
+
+        if (activeUser?.id && activeUser.organizationId) {
+          void recordAttendance({
+            organizationId: activeUser.organizationId,
+            employeeId: activeUser.id,
+            event: eventType,
+            lat,
+            lng,
+            accuracy: acc,
+            distance: dist,
+            withinGeofence: dist <= shopSettings.radius,
+          }).catch((err) => {
+            console.error('Supabase punch record error:', err);
+          });
         }
 
         onPunchRecorded(eventType);
@@ -1803,10 +2131,14 @@ function SettingsTab({
   staff,
   onResetDemoData,
   onUpdateStaff,
+  onSaveStaffEdit,
+  onAddNewStaff,
   wageHistories,
   onAddWageHistory,
   onSaved,
 }: {
+  onSaveStaffEdit?: (staff: UserProfile) => void;
+  onAddNewStaff?: (staff: UserProfile) => void;
   settings: ShopSettingsConfig;
   onUpdateSettings: (s: ShopSettingsConfig) => void;
   staff: UserProfile[];
@@ -1830,6 +2162,9 @@ function SettingsTab({
 
   const handleSaveStaffEdit = () => {
     if (!editingStaff) return;
+    if (onSaveStaffEdit) {
+      onSaveStaffEdit(editingStaff);
+    }
     onUpdateStaff((prev) =>
       prev.map((s) => (s.id === editingStaff.id ? editingStaff : s)),
     );
@@ -1867,11 +2202,15 @@ function SettingsTab({
       effectiveDate: new Date().toISOString().slice(0, 10),
       locationName: 'Meehoasg - Bình Thạnh',
     };
-    onUpdateStaff((prev) => [...prev, newMember]);
+    if (onAddNewStaff) {
+      onAddNewStaff(newMember);
+    } else {
+      onUpdateStaff((prev) => [...prev, newMember]);
+      onSaved('Đã thêm hồ sơ nhân viên mới');
+    }
     setAddStaffModal(false);
     setNewName('');
     setNewCode('');
-    onSaved('Đã thêm hồ sơ nhân viên mới');
   };
 
   return (
