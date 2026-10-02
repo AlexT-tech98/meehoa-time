@@ -269,7 +269,7 @@ function LoginScreen({
                 required
                 value={loginId}
                 onChange={(e) => setLoginId(e.target.value.toUpperCase())}
-                placeholder="Ví dụ: NV01 (quản lý cũ có thể nhập email)"
+                placeholder="Ví dụ: QL01 hoặc NV01"
                 className="h-12 w-full rounded-2xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
             </div>

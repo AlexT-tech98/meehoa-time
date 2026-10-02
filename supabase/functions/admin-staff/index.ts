@@ -33,7 +33,12 @@ function getDefaultKey(name: 'SUPABASE_PUBLISHABLE_KEYS' | 'SUPABASE_SECRET_KEYS
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Record<string, string>;
-    return parsed.default || Object.values(parsed)[0] || null;
+    const candidate = parsed.default || Object.values(parsed)[0] || null;
+    if (!candidate) return null;
+    const resolved = Deno.env.get(candidate);
+    if (resolved) return resolved;
+    if (candidate.startsWith('sb_') || candidate.split('.').length === 3) return candidate;
+    return null;
   } catch {
     return null;
   }
@@ -97,6 +102,9 @@ Deno.serve(async (req: Request) => {
     const employeeCode = normalizeEmployeeCode(staff.employeeCode || '');
     if (!employeeCode || !staff.fullName?.trim()) throw new Error('INVALID_EMPLOYEE_DATA');
     if (!['admin', 'employee'].includes(staff.role)) throw new Error('INVALID_ROLE');
+    if (staff.role === 'admin' && actor.role !== 'owner') {
+      throw new Error('OWNER_REQUIRED_TO_CREATE_ADMIN');
+    }
     if (!['hourly', 'monthly'].includes(staff.payrollType)) throw new Error('INVALID_PAYROLL_TYPE');
 
     const { data: existing } = await admin
@@ -204,11 +212,14 @@ Deno.serve(async (req: Request) => {
       const employeeCode = normalizeEmployeeCode(body.employeeCode || '');
       const { data: profile, error: profileError } = await admin
         .from('profiles')
-        .select('id, employee_code')
+        .select('id, employee_code, role')
         .eq('organization_id', actor.organization_id)
         .eq('employee_code', employeeCode)
         .single();
       if (profileError || !profile) return json({ error: 'EMPLOYEE_NOT_FOUND' }, 404);
+      if (['owner', 'admin'].includes(profile.role) && actor.role !== 'owner') {
+        return json({ error: 'OWNER_REQUIRED_FOR_PRIVILEGED_RESET' }, 403);
+      }
 
       const temporaryPassword = generatePassword();
       const { error: resetError } = await admin.auth.admin.updateUserById(profile.id, {

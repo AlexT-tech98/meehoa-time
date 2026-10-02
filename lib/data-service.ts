@@ -140,9 +140,7 @@ export interface ProvisionStaffResult {
 }
 
 function normalizeLoginId(loginId: string) {
-  const value = loginId.trim();
-  if (value.includes('@')) return value.toLowerCase();
-  return `${value.toLowerCase().replace(/\s+/g, '')}@${AUTH_EMAIL_DOMAIN}`;
+  return loginId.trim().toLowerCase();
 }
 
 // Auth helpers
@@ -157,9 +155,27 @@ export async function signIn(loginId: string, pass: string) {
   if (!hasSupabase || !supabase) {
     throw new Error('Supabase chưa được cấu hình');
   }
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: normalizeLoginId(loginId),
-    password: pass,
+
+  const identifier = loginId.trim();
+  if (identifier.includes('@')) {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: normalizeLoginId(identifier),
+      password: pass,
+    });
+    if (error) throw error;
+    return data;
+  }
+
+  const { data: loginData, error: loginError } = await supabase.functions.invoke('employee-login', {
+    body: { employeeCode: identifier.toUpperCase(), password: pass },
+  });
+  if (loginError || !loginData?.access_token || !loginData?.refresh_token) {
+    throw new Error('Invalid login credentials');
+  }
+
+  const { data, error } = await supabase.auth.setSession({
+    access_token: loginData.access_token,
+    refresh_token: loginData.refresh_token,
   });
   if (error) throw error;
   return data;
