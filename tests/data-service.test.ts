@@ -3,6 +3,8 @@ import {
   getSession,
   fetchProfile,
   fetchTodayAttendance,
+  loginIdToEmail,
+  monthBounds,
   ApprovalItemData,
 } from '../lib/data-service';
 
@@ -21,6 +23,22 @@ describe('Data Service Layer Unit Tests', () => {
     const events = await fetchTodayAttendance('test-emp-id');
     expect(Array.isArray(events)).toBe(true);
     expect(events.length).toBe(0);
+  });
+
+  it('maps employee code to internal synthetic login email', () => {
+    expect(loginIdToEmail('NV01')).toBe('nv01@auth.meehoasg.com');
+    expect(loginIdToEmail('  nv_02  ')).toBe('nv_02@auth.meehoasg.com');
+  });
+
+  it('keeps legacy owner email compatible', () => {
+    expect(loginIdToEmail('owner@example.com')).toBe('owner@example.com');
+  });
+
+  it('returns the correct calendar month bounds', () => {
+    expect(monthBounds(new Date(2026, 9, 15))).toEqual({
+      startsOn: '2026-10-01',
+      endsOn: '2026-10-31',
+    });
   });
 
   it('ApprovalItemData data structure matches expectation', () => {
