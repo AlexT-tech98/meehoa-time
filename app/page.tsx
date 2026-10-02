@@ -55,6 +55,7 @@ import {
   lockPayroll,
   provisionStaff,
   bulkProvisionStaff,
+  resetStaffPassword,
   ApprovalItemData,
   DbPayrollLine,
   DbProfile,
@@ -268,7 +269,7 @@ function LoginScreen({
                 required
                 value={loginId}
                 onChange={(e) => setLoginId(e.target.value.toUpperCase())}
-                placeholder="Ví dụ: NV01"
+                placeholder="Ví dụ: NV01 (quản lý cũ có thể nhập email)"
                 className="h-12 w-full rounded-2xl border border-input bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
             </div>
@@ -558,6 +559,8 @@ export default function Home() {
       );
       const updated = await fetchPendingApprovals(activeUser.organizationId);
       setApprovals(updated);
+      const period = await refreshPayrollPeriod();
+      if (period) setPayrollLines(await fetchPayrollLines(period.id));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Lỗi xử lý duyệt';
       setToast('Lỗi duyệt: ' + msg);
@@ -2285,6 +2288,19 @@ function SettingsTab({
     }
   };
 
+  const handleResetStaffPassword = async (profile: UserProfile) => {
+    try {
+      const result = await resetStaffPassword(profile.employeeCode);
+      const credential = `${result.employeeCode},${result.temporaryPassword}`;
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(credential).catch(() => undefined);
+      }
+      onSaved(`Đã reset mật khẩu ${result.employeeCode}. User/pass tạm đã được copy.`);
+    } catch (err: unknown) {
+      onSaved('Lỗi reset mật khẩu: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
   const handleAddNewStaff = (e: React.SyntheticEvent) => {
     e.preventDefault();
     if (!newName.trim() || !newCode.trim()) return;
@@ -2728,14 +2744,24 @@ function SettingsTab({
               </label>
             </div>
 
-            <button
-              type="button"
-              onClick={handleSaveStaffEdit}
-              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-xs font-bold text-primary-foreground shadow-xs hover:opacity-95"
-            >
-              <Save className="size-4" />
-              Lưu thay đổi mức lương
-            </button>
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => void handleResetStaffPassword(editingStaff)}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border bg-background px-4 py-3 text-xs font-bold hover:bg-muted"
+              >
+                <Lock className="size-4" />
+                Reset mật khẩu
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveStaffEdit}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-xs font-bold text-primary-foreground shadow-xs hover:opacity-95"
+              >
+                <Save className="size-4" />
+                Lưu thay đổi mức lương
+              </button>
+            </div>
           </section>
         </div>
       )}

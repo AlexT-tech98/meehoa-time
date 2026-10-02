@@ -423,6 +423,45 @@ begin
   from public.settings
   where organization_id = v_org;
 
+  -- Ended shifts with a missing punch must never silently become zero-pay ready rows.
+  insert into public.attendance_exceptions(
+    organization_id, employee_id, shift_id, kind, status, minutes
+  )
+  select
+    s.organization_id, s.employee_id, s.id, 'missing_check_in', 'open', null
+  from public.shifts s
+  where s.organization_id = v_org
+    and s.status <> 'cancelled'
+    and s.ends_at < now()
+    and s.starts_at >= v_period.starts_on::timestamptz
+    and s.starts_at < (v_period.ends_on + 1)::timestamptz
+    and not exists (
+      select 1 from public.attendance_events ae
+      where ae.shift_id = s.id and ae.employee_id = s.employee_id and ae.event = 'check_in'
+    )
+  on conflict (shift_id, kind) do nothing;
+
+  insert into public.attendance_exceptions(
+    organization_id, employee_id, shift_id, kind, status, minutes
+  )
+  select
+    s.organization_id, s.employee_id, s.id, 'missing_check_out', 'open', null
+  from public.shifts s
+  where s.organization_id = v_org
+    and s.status <> 'cancelled'
+    and s.ends_at < now()
+    and s.starts_at >= v_period.starts_on::timestamptz
+    and s.starts_at < (v_period.ends_on + 1)::timestamptz
+    and exists (
+      select 1 from public.attendance_events ae
+      where ae.shift_id = s.id and ae.employee_id = s.employee_id and ae.event = 'check_in'
+    )
+    and not exists (
+      select 1 from public.attendance_events ae
+      where ae.shift_id = s.id and ae.employee_id = s.employee_id and ae.event = 'check_out'
+    )
+  on conflict (shift_id, kind) do nothing;
+
   insert into public.payroll_lines(
     period_id, organization_id, employee_id,
     regular_minutes, overtime_minutes, pending_minutes,
