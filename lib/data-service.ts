@@ -1,5 +1,7 @@
 import { supabase, hasSupabase } from './supabase';
 
+const AUTH_EMAIL_DOMAIN = 'auth.meehoasg.com';
+
 export interface DbProfile {
   id: string;
   organization_id: string;
@@ -48,7 +50,7 @@ export interface DbShift {
   ends_at: string;
   break_minutes: number;
   note: string | null;
-  status: 'scheduled' | 'completed' | 'cancelled' | 'pending_approval';
+  status: 'scheduled' | 'in_progress' | 'completed' | 'exception' | 'approved' | 'cancelled';
   payable_start?: string | null;
   payable_end?: string | null;
   regular_minutes: number;
@@ -76,6 +78,73 @@ export interface DbAttendanceEvent {
   exception_note: string | null;
 }
 
+export interface DbPayrollPeriod {
+  id: string;
+  organization_id: string;
+  starts_on: string;
+  ends_on: string;
+  status: 'draft' | 'review' | 'locked' | 'paid';
+  locked_at?: string | null;
+  locked_by?: string | null;
+}
+
+export interface DbPayrollLine {
+  id: string;
+  period_id: string;
+  organization_id: string;
+  employee_id: string;
+  regular_minutes: number;
+  overtime_minutes: number;
+  pending_minutes: number;
+  base_amount: number;
+  adjustment_amount: number;
+  pending_amount: number;
+  gross_amount: number;
+  confidence: 'ready' | 'pending';
+  is_locked: boolean;
+}
+
+export interface ApprovalItemData {
+  id: string;
+  shiftId: string;
+  employeeId: string;
+  employeeName: string;
+  kind: 'exception' | 'overtime';
+  typeLabel: string;
+  dateStr: string;
+  shiftTime: string;
+  actualTimes?: string;
+  evidence: string;
+  reason: string;
+  requestedPayable: string;
+  proposedMinutes?: number;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
+export interface ProvisionStaffInput {
+  employeeCode: string;
+  fullName: string;
+  role: 'admin' | 'employee';
+  payrollType: 'hourly' | 'monthly';
+  hourlyRate: number;
+  monthlySalary: number;
+  effectiveDate: string;
+  phone?: string;
+  password?: string;
+}
+
+export interface ProvisionStaffResult {
+  profile: DbProfile;
+  employeeCode: string;
+  temporaryPassword: string;
+}
+
+function normalizeLoginId(loginId: string) {
+  const value = loginId.trim();
+  if (value.includes('@')) return value.toLowerCase();
+  return `${value.toLowerCase().replace(/\s+/g, '')}@${AUTH_EMAIL_DOMAIN}`;
+}
+
 // Auth helpers
 export async function getSession() {
   if (!hasSupabase || !supabase) return null;
@@ -84,12 +153,12 @@ export async function getSession() {
   return data.session;
 }
 
-export async function signIn(email: string, pass: string) {
+export async function signIn(loginId: string, pass: string) {
   if (!hasSupabase || !supabase) {
     throw new Error('Supabase chưa được cấu hình');
   }
   const { data, error } = await supabase.auth.signInWithPassword({
-    email,
+    email: normalizeLoginId(loginId),
     password: pass,
   });
   if (error) throw error;
@@ -118,6 +187,7 @@ export async function fetchStaffProfiles(): Promise<DbProfile[]> {
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
+    .eq('active', true)
     .order('employee_code');
   if (error || !data) return [];
   return data as DbProfile[];
@@ -137,7 +207,10 @@ export async function createStaffProfile(profile: Partial<DbProfile>): Promise<D
   return data as DbProfile;
 }
 
-export async function updateStaffProfile(profileId: string, updates: Partial<DbProfile>): Promise<DbProfile | null> {
+export async function updateStaffProfile(
+  profileId: string,
+  updates: Partial<DbProfile>,
+): Promise<DbProfile | null> {
   if (!hasSupabase || !supabase) return null;
   const { data, error } = await supabase
     .from('profiles')
@@ -152,23 +225,63 @@ export async function updateStaffProfile(profileId: string, updates: Partial<DbP
   return data as DbProfile;
 }
 
+export async function provisionStaff(
+  staff: ProvisionStaffInput,
+): Promise<ProvisionStaffResult> {
+  if (!hasSupabase || !supabase) throw new Error('Supabase client unavailable');
+  const { data, error } = await supabase.functions.invoke('admin-staff', {
+    body: { action: 'create', staff },
+  });
+  if (error) throw error;
+  if (!data?.profile || !data?.temporaryPassword) {
+    throw new Error(data?.error || 'Không tạo được tài khoản nhân viên');
+  }
+  return data as ProvisionStaffResult;
+}
+
+export async function bulkProvisionStaff(
+  staff: ProvisionStaffInput[],
+): Promise<{
+  created: ProvisionStaffResult[];
+  failed: Array<{ employeeCode: string; error: string }>;
+}> {
+  if (!hasSupabase || !supabase) throw new Error('Supabase client unavailable');
+  const { data, error } = await supabase.functions.invoke('admin-staff', {
+    body: { action: 'bulk_create', staff },
+  });
+  if (error) throw error;
+  if (!data) throw new Error('Không nhận được kết quả tạo tài khoản hàng loạt');
+  return data;
+}
+
+export async function resetStaffPassword(employeeCode: string) {
+  if (!hasSupabase || !supabase) throw new Error('Supabase client unavailable');
+  const { data, error } = await supabase.functions.invoke('admin-staff', {
+    body: { action: 'reset_password', employeeCode },
+  });
+  if (error) throw error;
+  if (!data?.temporaryPassword) throw new Error(data?.error || 'Không reset được mật khẩu');
+  return data as { employeeCode: string; temporaryPassword: string };
+}
+
 // Locations & Settings
 export async function fetchShopLocation(): Promise<DbLocation | null> {
   if (!hasSupabase || !supabase) return null;
   const { data, error } = await supabase
     .from('locations')
     .select('*')
+    .eq('active', true)
     .limit(1);
   if (error || !data || data.length === 0) return null;
   return data[0] as DbLocation;
 }
 
-export async function updateShopLocation(locationId: string, updates: Partial<DbLocation>): Promise<void> {
+export async function updateShopLocation(
+  locationId: string,
+  updates: Partial<DbLocation>,
+): Promise<void> {
   if (!hasSupabase || !supabase) return;
-  const { error } = await supabase
-    .from('locations')
-    .update(updates)
-    .eq('id', locationId);
+  const { error } = await supabase.from('locations').update(updates).eq('id', locationId);
   if (error) {
     console.error('Error updating location:', error);
     throw error;
@@ -177,15 +290,15 @@ export async function updateShopLocation(locationId: string, updates: Partial<Db
 
 export async function fetchShopSettings(): Promise<DbSettings | null> {
   if (!hasSupabase || !supabase) return null;
-  const { data, error } = await supabase
-    .from('settings')
-    .select('*')
-    .limit(1);
+  const { data, error } = await supabase.from('settings').select('*').limit(1);
   if (error || !data || data.length === 0) return null;
   return data[0] as DbSettings;
 }
 
-export async function updateShopSettings(organizationId: string, updates: Partial<DbSettings>): Promise<void> {
+export async function updateShopSettings(
+  organizationId: string,
+  updates: Partial<DbSettings>,
+): Promise<void> {
   if (!hasSupabase || !supabase) return;
   const { error } = await supabase
     .from('settings')
@@ -197,8 +310,10 @@ export async function updateShopSettings(organizationId: string, updates: Partia
   }
 }
 
-// Attendance (Chấm công)
-export async function fetchTodayAttendance(employeeId: string): Promise<DbAttendanceEvent[]> {
+// Attendance
+export async function fetchTodayAttendance(
+  employeeId: string,
+): Promise<DbAttendanceEvent[]> {
   if (!hasSupabase || !supabase) return [];
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
@@ -214,6 +329,41 @@ export async function fetchTodayAttendance(employeeId: string): Promise<DbAttend
   return data as DbAttendanceEvent[];
 }
 
+export async function fetchAttendanceShift(
+  employeeId: string,
+): Promise<DbShift | null> {
+  if (!hasSupabase || !supabase) return null;
+
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+
+  const { data, error } = await supabase
+    .from('shifts')
+    .select('*')
+    .eq('employee_id', employeeId)
+    .neq('status', 'cancelled')
+    .gte('starts_at', start.toISOString())
+    .lt('starts_at', end.toISOString())
+    .order('starts_at');
+
+  if (error || !data || data.length === 0) return null;
+  const shifts = data as DbShift[];
+  const inProgress = shifts.find((shift) => shift.status === 'in_progress');
+  if (inProgress) return inProgress;
+
+  const nowMs = now.getTime();
+  return (
+    shifts.find((shift) => {
+      const starts = new Date(shift.starts_at).getTime() - 3 * 60 * 60 * 1000;
+      const ends = new Date(shift.ends_at).getTime() + 3 * 60 * 60 * 1000;
+      return nowMs >= starts && nowMs <= ends;
+    }) || shifts[0]
+  );
+}
+
 export async function recordAttendance(event: {
   organizationId: string;
   employeeId: string;
@@ -222,8 +372,8 @@ export async function recordAttendance(event: {
   lat: number;
   lng: number;
   accuracy: number;
-  distance: number;
-  withinGeofence: boolean;
+  distance?: number;
+  withinGeofence?: boolean;
   userAgent?: string;
   note?: string;
 }): Promise<DbAttendanceEvent> {
@@ -231,55 +381,36 @@ export async function recordAttendance(event: {
     throw new Error('Supabase client unavailable');
   }
 
-  const idempotencyKey = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : `punch-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const shift = event.shiftId
+    ? ({ id: event.shiftId } as Pick<DbShift, 'id'>)
+    : await fetchAttendanceShift(event.employeeId);
+  if (!shift) {
+    throw new Error('NO_SCHEDULED_SHIFT');
+  }
 
-  const nowIso = new Date().toISOString();
+  const idempotencyKey =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `punch-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-  const insertPayload = {
-    organization_id: event.organizationId,
-    employee_id: event.employeeId,
-    shift_id: event.shiftId || null,
-    event: event.event,
-    occurred_at: nowIso,
-    client_occurred_at: nowIso,
-    latitude: event.lat,
-    longitude: event.lng,
-    accuracy_meters: event.accuracy,
-    distance_meters: event.distance,
-    within_geofence: event.withinGeofence,
-    idempotency_key: idempotencyKey,
-    user_agent: event.userAgent || (typeof navigator !== 'undefined' ? navigator.userAgent : null),
-    exception_note: event.note || null,
-  };
-
-  const { data, error } = await supabase
-    .from('attendance_events')
-    .insert(insertPayload)
-    .select()
-    .single();
+  const { data, error } = await supabase.rpc('capture_attendance', {
+    p_shift_id: shift.id,
+    p_event: event.event,
+    p_lat: event.lat,
+    p_lng: event.lng,
+    p_accuracy: event.accuracy,
+    p_idempotency_key: idempotencyKey,
+    p_client_time: new Date().toISOString(),
+    p_user_agent:
+      event.userAgent || (typeof navigator !== 'undefined' ? navigator.userAgent : null),
+    p_note: event.note || null,
+  });
 
   if (error) {
-    console.error('Error inserting attendance event:', error);
+    console.error('capture_attendance RPC error:', error);
     throw error;
   }
-
-  // If outside geofence and shift exists, log exception
-  if (!event.withinGeofence && event.shiftId) {
-    try {
-      await supabase.from('attendance_exceptions').insert({
-        organization_id: event.organizationId,
-        employee_id: event.employeeId,
-        shift_id: event.shiftId,
-        kind: 'outside_geofence',
-        status: 'open',
-      });
-    } catch (e) {
-      console.warn('Failed to log attendance exception:', e);
-    }
-  }
-
+  if (!data) throw new Error('Không nhận được kết quả chấm công');
   return data as DbAttendanceEvent;
 }
 
@@ -288,7 +419,7 @@ export async function fetchShiftsForRange(
   organizationId: string,
   startIso: string,
   endIso: string,
-  employeeId?: string
+  employeeId?: string,
 ): Promise<DbShift[]> {
   if (!hasSupabase || !supabase) return [];
   let query = supabase
@@ -299,9 +430,7 @@ export async function fetchShiftsForRange(
     .lte('ends_at', endIso)
     .order('starts_at');
 
-  if (employeeId) {
-    query = query.eq('employee_id', employeeId);
-  }
+  if (employeeId) query = query.eq('employee_id', employeeId);
 
   const { data, error } = await query;
   if (error || !data) return [];
@@ -320,11 +449,13 @@ export async function saveWeeklyShifts(
   }>,
   rangeStartIso: string,
   rangeEndIso: string,
-  affectedEmployeeIds: string[]
+  affectedEmployeeIds: string[],
 ): Promise<void> {
   if (!hasSupabase || !supabase) return;
 
-  // 1. Delete existing shifts in this range for these employees
+  const location = await fetchShopLocation();
+  if (!location) throw new Error('Chưa cấu hình chi nhánh chấm công');
+
   for (const empId of affectedEmployeeIds) {
     const { error: delError } = await supabase
       .from('shifts')
@@ -334,19 +465,17 @@ export async function saveWeeklyShifts(
       .gte('starts_at', rangeStartIso)
       .lte('ends_at', rangeEndIso);
 
-    if (delError) {
-      console.warn('Error clearing old shifts for employee:', empId, delError);
-    }
+    if (delError) throw delError;
   }
 
-  // 2. Insert new shifts
   if (shiftsToInsert.length > 0) {
     const payload = shiftsToInsert.map((s) => ({
       organization_id: organizationId,
       employee_id: s.employee_id,
-      location_id: s.location_id,
+      location_id: s.location_id || location.id,
       starts_at: s.starts_at,
       ends_at: s.ends_at,
+      note: s.note || null,
       status: 'scheduled' as const,
       regular_minutes: 0,
       overtime_minutes: 0,
@@ -356,13 +485,9 @@ export async function saveWeeklyShifts(
     }));
 
     const { error: insError } = await supabase.from('shifts').insert(payload);
-    if (insError) {
-      console.error('Error inserting new shifts:', insError);
-      throw insError;
-    }
+    if (insError) throw insError;
   }
 
-  // 3. Log audit
   await logAudit(organizationId, actorId, 'save_schedule', 'shifts', organizationId, {
     count: shiftsToInsert.length,
     rangeStart: rangeStartIso,
@@ -370,30 +495,14 @@ export async function saveWeeklyShifts(
   });
 }
 
-// Approvals (Exceptions & Overtime)
-export interface ApprovalItemData {
-  id: string;
-  shiftId: string;
-  employeeId: string;
-  employeeName: string;
-  kind: 'exception' | 'overtime';
-  typeLabel: string;
-  dateStr: string;
-  shiftTime: string;
-  actualTimes?: string;
-  evidence: string;
-  reason: string;
-  requestedPayable: string;
-  proposedMinutes?: number;
-  status: 'pending' | 'approved' | 'rejected';
-}
-
-export async function fetchPendingApprovals(organizationId: string): Promise<ApprovalItemData[]> {
+// Approvals
+export async function fetchPendingApprovals(
+  organizationId: string,
+): Promise<ApprovalItemData[]> {
   if (!hasSupabase || !supabase) return [];
 
   const items: ApprovalItemData[] = [];
 
-  // Overtime requests
   const { data: ots } = await supabase
     .from('overtime_requests')
     .select('*, profiles(full_name), shifts(starts_at, ends_at)')
@@ -416,15 +525,17 @@ export async function fetchPendingApprovals(organizationId: string): Promise<App
         dateStr: sStart.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }),
         shiftTime: `${sStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}–${sEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`,
         evidence: `Đề xuất +${ot.requested_minutes || 0} phút`,
-        reason: ot.reason || 'Tăng ca hỗ trợ đơn hoa',
+        reason: ot.reason || 'Checkout sau giờ ca',
         requestedPayable: `+${Math.round((ot.requested_minutes || 0) / 6) / 10}h`,
         proposedMinutes: ot.requested_minutes || 0,
-        status: ot.status as 'pending' | 'approved' | 'rejected',
+        status:
+          ot.status === 'submitted' || ot.status === 'open'
+            ? 'pending'
+            : (ot.status as 'approved' | 'rejected'),
       });
     }
   }
 
-  // Attendance exceptions
   const { data: excs } = await supabase
     .from('attendance_exceptions')
     .select('*, profiles(full_name), shifts(starts_at, ends_at)')
@@ -437,13 +548,16 @@ export async function fetchPendingApprovals(organizationId: string): Promise<App
       const profile = exc.profiles as { full_name?: string } | null;
       const sStart = shift?.starts_at ? new Date(shift.starts_at) : new Date();
       const sEnd = shift?.ends_at ? new Date(shift.ends_at) : new Date();
-      const typeLabel = exc.kind === 'late'
-        ? 'Đi trễ'
-        : exc.kind === 'early_leave'
-          ? 'Về sớm'
-          : exc.kind === 'outside_geofence'
-            ? 'Ngoài vùng shop'
-            : 'Chưa đủ lượt chấm';
+      const typeLabel =
+        exc.kind === 'late'
+          ? 'Đi trễ'
+          : exc.kind === 'early_leave'
+            ? 'Về sớm'
+            : exc.kind === 'outside_geofence'
+              ? 'Ngoài vùng shop'
+              : exc.kind === 'low_gps_accuracy'
+                ? 'GPS chưa đủ chính xác'
+                : 'Chưa đủ lượt chấm';
       items.push({
         id: exc.id,
         shiftId: exc.shift_id,
@@ -453,7 +567,7 @@ export async function fetchPendingApprovals(organizationId: string): Promise<App
         typeLabel,
         dateStr: sStart.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }),
         shiftTime: `${sStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}–${sEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`,
-        evidence: exc.minutes ? `${exc.minutes} phút` : 'Vi phạm geofence',
+        evidence: exc.minutes ? `${exc.minutes} phút` : 'Hệ thống phát hiện',
         reason: 'Hệ thống tự động phát hiện',
         requestedPayable: 'Cần xem xét',
         proposedMinutes: exc.minutes || 0,
@@ -469,40 +583,27 @@ export async function reviewApproval(
   item: ApprovalItemData,
   approved: boolean,
   actorId: string,
-  organizationId: string
+  organizationId: string,
 ): Promise<void> {
   if (!hasSupabase || !supabase) return;
 
-  const nowIso = new Date().toISOString();
-
   if (item.kind === 'overtime') {
-    const status = approved ? 'approved' : 'rejected';
-    const approvedMins = approved ? (item.proposedMinutes || 0) : 0;
-
-    await supabase
-      .from('overtime_requests')
-      .update({
-        status,
-        approved_minutes: approvedMins,
-        reviewed_by: actorId,
-        reviewed_at: nowIso,
-      })
-      .eq('id', item.id);
-
-    if (approved && item.shiftId) {
-      await supabase
-        .from('shifts')
-        .update({ overtime_minutes: approvedMins })
-        .eq('id', item.shiftId);
-    }
+    const { error } = await supabase.rpc('review_overtime', {
+      p_ot_id: item.id,
+      p_decision: approved ? 'approved' : 'rejected',
+      p_approved_minutes: approved ? item.proposedMinutes || 0 : 0,
+      p_note: approved ? 'Duyệt từ MEEHOA TIME' : 'Từ chối từ MEEHOA TIME',
+    });
+    if (error) throw error;
   } else {
-    await supabase
+    const { error } = await supabase
       .from('attendance_exceptions')
       .update({
         status: approved ? 'approved' : 'rejected',
-        resolved_at: nowIso,
+        resolved_at: new Date().toISOString(),
       })
       .eq('id', item.id);
+    if (error) throw error;
   }
 
   await logAudit(organizationId, actorId, approved ? 'approve' : 'reject', item.kind, item.id, {
@@ -511,18 +612,21 @@ export async function reviewApproval(
   });
 }
 
-// Payroll Periods & Lines
-export interface DbPayrollPeriod {
-  id: string;
-  organization_id: string;
-  starts_on: string;
-  ends_on: string;
-  status: 'draft' | 'locked' | 'paid';
-  locked_at?: string | null;
-  locked_by?: string | null;
+// Payroll
+export async function refreshPayrollPeriod(
+  periodId?: string | null,
+): Promise<DbPayrollPeriod | null> {
+  if (!hasSupabase || !supabase) return null;
+  const { data, error } = await supabase.rpc('refresh_payroll_period', {
+    p_period_id: periodId || null,
+  });
+  if (error) throw error;
+  return (data as DbPayrollPeriod | null) || null;
 }
 
-export async function fetchCurrentPayrollPeriod(organizationId: string): Promise<DbPayrollPeriod | null> {
+export async function fetchCurrentPayrollPeriod(
+  organizationId: string,
+): Promise<DbPayrollPeriod | null> {
   if (!hasSupabase || !supabase) return null;
   const { data, error } = await supabase
     .from('payroll_periods')
@@ -535,28 +639,23 @@ export async function fetchCurrentPayrollPeriod(organizationId: string): Promise
   return data[0] as DbPayrollPeriod;
 }
 
-export async function lockPayroll(
-  periodId: string,
-  organizationId: string,
-  actorId: string
-): Promise<void> {
+export async function fetchPayrollLines(periodId: string): Promise<DbPayrollLine[]> {
+  if (!hasSupabase || !supabase) return [];
+  const { data, error } = await supabase
+    .from('payroll_lines')
+    .select('*')
+    .eq('period_id', periodId)
+    .order('employee_id');
+  if (error) throw error;
+  return (data || []) as DbPayrollLine[];
+}
+
+export async function lockPayroll(periodId: string): Promise<void> {
   if (!hasSupabase || !supabase) return;
-  const nowIso = new Date().toISOString();
-  const { error } = await supabase
-    .from('payroll_periods')
-    .update({
-      status: 'locked',
-      locked_at: nowIso,
-      locked_by: actorId,
-    })
-    .eq('id', periodId);
-
-  if (error) {
-    console.error('Error locking payroll period:', error);
-    throw error;
-  }
-
-  await logAudit(organizationId, actorId, 'lock_payroll', 'payroll_period', periodId, { lockedAt: nowIso });
+  const { error } = await supabase.rpc('lock_payroll_period', {
+    p_period_id: periodId,
+  });
+  if (error) throw error;
 }
 
 // Audit Log helper
@@ -566,7 +665,7 @@ export async function logAudit(
   action: string,
   entityType: string,
   entityId: string,
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
 ): Promise<void> {
   if (!hasSupabase || !supabase) return;
   try {
