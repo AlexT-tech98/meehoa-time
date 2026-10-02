@@ -12,6 +12,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@/lib/data-service": path.resolve(__dirname, "./lib/data-service-compat.ts"),
       "@": path.resolve(__dirname, "./"),
     },
   },
