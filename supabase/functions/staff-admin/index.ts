@@ -10,14 +10,25 @@ const corsHeaders = {
 const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' }
 const syntheticDomain = 'auth.meehoasg.com'
 
-function getJsonKey(envName: string, fallbackName: string): string {
+function getManagedKey(envName: string, fallbackName: string): string {
   const raw = Deno.env.get(envName)
   if (raw) {
     try {
       const parsed = JSON.parse(raw)
-      if (parsed?.default) return parsed.default
+      const defaultRef = parsed?.default
+      if (typeof defaultRef === 'string') {
+        // Supabase's managed JSON variables normally contain the NAME of the
+        // injected secret variable. Resolve that variable instead of exposing
+        // or treating the name itself as a key.
+        const resolved = Deno.env.get(defaultRef)
+        if (resolved) return resolved
+        // Keep compatibility in case the platform ever returns the key value.
+        if (defaultRef.startsWith('sb_') || defaultRef.split('.').length === 3) {
+          return defaultRef
+        }
+      }
     } catch {
-      // fall through to legacy/default variable
+      // fall through to the legacy/default variable below
     }
   }
   return Deno.env.get(fallbackName) ?? ''
@@ -62,8 +73,8 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return response({ error: 'METHOD_NOT_ALLOWED' }, 405)
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
-  const publishableKey = getJsonKey('SUPABASE_PUBLISHABLE_KEYS', 'SUPABASE_ANON_KEY')
-  const secretKey = getJsonKey('SUPABASE_SECRET_KEYS', 'SUPABASE_SERVICE_ROLE_KEY')
+  const publishableKey = getManagedKey('SUPABASE_PUBLISHABLE_KEYS', 'SUPABASE_ANON_KEY')
+  const secretKey = getManagedKey('SUPABASE_SECRET_KEYS', 'SUPABASE_SERVICE_ROLE_KEY')
   const authHeader = req.headers.get('Authorization') ?? ''
 
   if (!supabaseUrl || !publishableKey || !secretKey || !authHeader.startsWith('Bearer ')) {
